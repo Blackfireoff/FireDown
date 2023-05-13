@@ -27,3 +27,16 @@ class Ytdlpclass:
         }
         self.yt.YoutubeDL(options).download(self.url)
 
+    def nbr_items(self):
+        ydl_opts = {}
+
+        with self.yt.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(self.url, download=False)
+
+            if 'entries' in info:
+                num_items = len(info['entries'])
+                print(f"Number of items to be downloaded: {num_items}")
+            else:
+                num_items = 1
+                print("Only one item to be downloaded")
+
