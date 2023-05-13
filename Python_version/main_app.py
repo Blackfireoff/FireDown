@@ -20,9 +20,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButton_download.clicked.connect(self.handle_ok_button)
         self.pushButton_cancel.clicked.connect(self.ok_button_clicked.emit)
         self.pushButton_cancel.clicked.connect(self.cancel_text)
+        self.progressBar_items.hide()
         # self.buttonBox_final.accepted.connect(self.handle_ok_button)
 
     def handle_ok_button(self):
+
         log_buffer = io.StringIO()
 
         url = self.lineEdit_url.text()
@@ -30,13 +32,18 @@ class MainWindow(QtWidgets.QMainWindow):
         current_index = self.comboBox_format.currentIndex()
         if url != "" and path != "":
 
+
             print("url : " + url)
             print("path : " + path)
             print("current_index : " + str(current_index))
 
+            yt = Ytdlpclass(url, path)
+            nb_item = yt.nbr_items()
+            self.progressBar_items.show()
+
             original_stdout = sys.stdout
             sys.stdout = log_buffer
-            yt = Ytdlpclass(url,path)
+
             if current_index == 0 :
                 yt.video()
             elif current_index == 1 :

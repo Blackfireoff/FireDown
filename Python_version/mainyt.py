@@ -8,6 +8,12 @@ class Ytdlpclass:
         self.yt = yt_dlp
         self.url = url
         self.path = os.path.join(path)
+        self.count = 0
+
+    def postprocessor_hook(self, info):
+        if info['status'] == 'started':
+            self.count += 1
+            print("[index] "+str(self.count))
 
     def audio_only(self):
         options = {
@@ -16,7 +22,8 @@ class Ytdlpclass:
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',
-            }]
+            }],
+            'postprocessor_hooks': [self.postprocessor_hook]
         }
         self.yt.YoutubeDL(options).download(self.url)
 
@@ -24,6 +31,7 @@ class Ytdlpclass:
         options = {
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': f'{self.path}/videos/%(title)s.%(ext)s',
+            'postprocessor_hooks': [self.postprocessor_hook]
         }
         self.yt.YoutubeDL(options).download(self.url)
 
@@ -39,4 +47,6 @@ class Ytdlpclass:
             else:
                 num_items = 1
                 print("Only one item to be downloaded")
+
+        return num_items
 
