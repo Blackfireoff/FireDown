@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>648</width>
-    <height>455</height>
+    <width>610</width>
+    <height>428</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -55,7 +55,7 @@
      <rect>
       <x>170</x>
       <y>50</y>
-      <width>371</width>
+      <width>331</width>
       <height>20</height>
      </rect>
     </property>
@@ -186,13 +186,26 @@
      <bool>false</bool>
     </property>
    </widget>
+   <widget class="QPushButton" name="pushButton_path">
+    <property name="geometry">
+     <rect>
+      <x>510</x>
+      <y>50</y>
+      <width>41</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Select</string>
+    </property>
+   </widget>
   </widget>
   <widget class="QMenuBar" name="menubar_settings">
    <property name="geometry">
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>648</width>
+     <width>610</width>
      <height>21</height>
     </rect>
    </property>

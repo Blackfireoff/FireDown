@@ -21,6 +21,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButton_cancel.clicked.connect(self.ok_button_clicked.emit)
         self.pushButton_cancel.clicked.connect(self.cancel_text)
         self.progressBar_items.hide()
+
+        self.pushButton_path.clicked.connect(self.open_directory_dialog)
         # self.buttonBox_final.accepted.connect(self.handle_ok_button)
 
     def handle_ok_button(self):
@@ -39,7 +41,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
             yt = Ytdlpclass(url, path)
             nb_item = yt.nbr_items()
-            self.progressBar_items.show()
+            #self.progressBar_items.show()
 
             original_stdout = sys.stdout
             sys.stdout = log_buffer
@@ -72,6 +74,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lineEdit_url.setText("")
         self.lineEdit_path.setText("")
         self.comboBox_format.setCurrentIndex(0)
+
+    def open_directory_dialog(self):
+        directory_dialog = QtWidgets.QFileDialog()
+        directory_dialog.setFileMode(QtWidgets.QFileDialog.DirectoryOnly)
+
+        if directory_dialog.exec_():
+            selected_directory = directory_dialog.selectedFiles()
+            if selected_directory:
+                print("Chemin du dossier sélectionné :", selected_directory[0])
+                self.lineEdit_path.setText(selected_directory[0])
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
