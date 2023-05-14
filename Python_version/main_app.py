@@ -3,7 +3,6 @@ from PyQt5 import QtCore, QtGui, QtWidgets, uic
 import yt_dlp
 
 
-
 class MainWindow(QtWidgets.QMainWindow):
     ok_button_clicked = QtCore.pyqtSignal()
     cancel_button_clicked = QtCore.pyqtSignal()
@@ -28,13 +27,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def append_html_to_plain_text_end(self):
         self.plainTextEdit_output.appendHtml("<span style='color: green;'>Téléchargement(s) réussit !</span><br>")
 
-    def current_index(self,param):
+    def current_index(self, param):
         print("[Info] - Nbr current :" + str(param))
         self.progressBar_items.setValue(param)
 
-    def init_index(self,param):
+    def init_index(self, param):
         print("[Info] - Nbr max :" + str(param))
         self.progressBar_items.setMaximum(param)
+
+    def show_error(self,param):
+        print(param)
+        self.plainTextEdit_output.appendHtml("<span style='color: red;'>/!\ Erreur rencontrée /!\</span><br>")
+
     def handle_ok_button(self):
 
         url = self.lineEdit_url.text()
@@ -60,6 +64,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker.progress.connect(self.current_index)
         self.worker.init_val.connect(self.init_index)
+        self.worker.error.connect(self.show_error)
 
         self.thread.finished.connect(self.thread.deleteLater)
         # Step 6: Start the thread
@@ -99,6 +104,7 @@ class Worker(QtCore.QObject):
     finished = QtCore.pyqtSignal()
     progress = QtCore.pyqtSignal(int)
     init_val = QtCore.pyqtSignal(int)
+    error = QtCore.pyqtSignal(str)
 
     def __init__(self, url, path, index):
         super().__init__()
@@ -116,9 +122,17 @@ class Worker(QtCore.QObject):
             self.finished.emit()
 
     def postprocessor_hook(self, info):
+        # print(info)
         if info['status'] == 'finished':
-            self.progress.emit(info['info_dict']['playlist_index'])
-            self.init_val.emit(info['info_dict']['__last_playlist_index'])
+            if '__last_playlist_index' in info['info_dict'] :
+                self.progress.emit(info['info_dict']['playlist_index'])
+                self.init_val.emit(info['info_dict']['__last_playlist_index'])
+            else:
+                self.progress.emit(1)
+                self.init_val.emit(1)
+        if info['status'] == 'error':
+            # print(info)
+            self.error.emit(info)
 
             # print(info['fragment_index'],info['fragment_count'])
 
@@ -130,17 +144,25 @@ class Worker(QtCore.QObject):
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',
             }],
-            'progress_hooks': [self.postprocessor_hook]
+            'progress_hooks': [self.postprocessor_hook],
+            'quiet': 1
         }
-        self.yt.YoutubeDL(options).download(self.url)
+        try:
+            self.yt.YoutubeDL(options).download(self.url)
+        except yt_dlp.utils.DownloadError as E:
+            self.error.emit(E.msg)
 
     def video(self):
         options = {
             'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
             'outtmpl': f'{self.path}/videos/%(title)s.%(ext)s',
-            'progress_hooks': [self.postprocessor_hook]
+            'progress_hooks': [self.postprocessor_hook],
+            'quiet': 1
         }
-        self.yt.YoutubeDL(options).download(self.url)
+        try:
+            self.yt.YoutubeDL(options).download(self.url)
+        except yt_dlp.utils.DownloadError as E:
+            self.error.emit(E.msg)
 
 
 if __name__ == '__main__':
