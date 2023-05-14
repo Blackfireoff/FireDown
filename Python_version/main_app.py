@@ -1,58 +1,7 @@
 import sys
-import io
 from PyQt5 import QtCore, QtGui, QtWidgets, uic
-import threading
-import os
 import yt_dlp
-import time
 
-
-class Ytdlpclass:
-    def __init__(self, url, path):
-        self.yt = yt_dlp
-        self.url = url
-        self.path = os.path.join(path)
-        self.count = 0
-
-    def postprocessor_hook(self, info):
-        if info['status'] == 'started':
-            self.count += 1
-            print("[index] " + str(self.count))
-
-    def audio_only(self):
-        options = {
-            'format': 'm4a/bestaudio/best',
-            'outtmpl': f'{self.path}/audio/%(title)s.%(ext)s',
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'm4a',
-            }],
-            'postprocessor_hooks': [self.postprocessor_hook]
-        }
-        self.yt.YoutubeDL(options).download(self.url)
-
-    def video(self):
-        options = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': f'{self.path}/videos/%(title)s.%(ext)s',
-            'postprocessor_hooks': [self.postprocessor_hook]
-        }
-        self.yt.YoutubeDL(options).download(self.url)
-
-    def nbr_items(self):
-        ydl_opts = {}
-
-        with self.yt.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(self.url, download=False)
-
-            if 'entries' in info:
-                num_items = len(info['entries'])
-                print(f"Number of items to be downloaded: {num_items}")
-            else:
-                num_items = 1
-                print("Only one item to be downloaded")
-
-        return num_items
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -79,6 +28,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def append_html_to_plain_text_end(self):
         self.plainTextEdit_output.appendHtml("<span style='color: green;'>Téléchargement(s) réussit !</span><br>")
 
+    def current_index(self,param):
+        print("[Info] - Nbr current :" + str(param))
+        self.progressBar_items.setValue(param)
+
+    def init_index(self,param):
+        print("[Info] - Nbr max :" + str(param))
+        self.progressBar_items.setMaximum(param)
     def handle_ok_button(self):
 
         url = self.lineEdit_url.text()
@@ -90,6 +46,8 @@ class MainWindow(QtWidgets.QMainWindow):
         print("path : " + path)
         print("current_index : " + str(current_index))
 
+        self.progressBar_items.show()
+
         # Step 2: Create a QThread object
         self.thread = QtCore.QThread()
         # Step 3: Create a worker object
@@ -100,6 +58,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.thread.quit)
         self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.progress.connect(self.current_index)
+        self.worker.init_val.connect(self.init_index)
 
         self.thread.finished.connect(self.thread.deleteLater)
         # Step 6: Start the thread
@@ -137,22 +97,50 @@ class MainWindow(QtWidgets.QMainWindow):
 
 class Worker(QtCore.QObject):
     finished = QtCore.pyqtSignal()
+    progress = QtCore.pyqtSignal(int)
+    init_val = QtCore.pyqtSignal(int)
 
     def __init__(self, url, path, index):
         super().__init__()
         self.url = url
         self.path = path
         self.index = index
+        self.yt = yt_dlp
 
     def run(self):
         if self.index == 0:
-            yt = Ytdlpclass(self.url, self.path)
-            yt.video()
+            self.video()
             self.finished.emit()
         if self.index == 1:
-            yt = Ytdlpclass(self.url, self.path)
-            yt.audio_only()
+            self.audio_only()
             self.finished.emit()
+
+    def postprocessor_hook(self, info):
+        if info['status'] == 'finished':
+            self.progress.emit(info['info_dict']['playlist_index'])
+            self.init_val.emit(info['info_dict']['__last_playlist_index'])
+
+            # print(info['fragment_index'],info['fragment_count'])
+
+    def audio_only(self):
+        options = {
+            'format': 'm4a/bestaudio/best',
+            'outtmpl': f'{self.path}/audio/%(title)s.%(ext)s',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'm4a',
+            }],
+            'progress_hooks': [self.postprocessor_hook]
+        }
+        self.yt.YoutubeDL(options).download(self.url)
+
+    def video(self):
+        options = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': f'{self.path}/videos/%(title)s.%(ext)s',
+            'progress_hooks': [self.postprocessor_hook]
+        }
+        self.yt.YoutubeDL(options).download(self.url)
 
 
 if __name__ == '__main__':
