@@ -1,25 +1,51 @@
 import sys
 from PyQt5 import QtCore, QtGui, QtWidgets, uic
 import yt_dlp
-
+import json
 
 class MainWindow(QtWidgets.QMainWindow):
     ok_button_clicked = QtCore.pyqtSignal()
     cancel_button_clicked = QtCore.pyqtSignal()
+    langue = QtCore.pyqtSignal()
 
     already_printed = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         uic.loadUi("mainwindows.ui", self)
+        self.selec_fr()
         self.pushButton_download.clicked.connect(self.ok_button_clicked.emit)
         self.pushButton_download.clicked.connect(self.handle_ok_button)
         self.pushButton_cancel.clicked.connect(self.ok_button_clicked.emit)
         self.pushButton_cancel.clicked.connect(self.cancel_text)
+        self.actionEnglish.triggered.connect(self.selec_en)
+        self.actionFrancais.triggered.connect(self.selec_fr)
         self.progressBar_items.hide()
-
         self.pushButton_path.clicked.connect(self.open_directory_dialog)
         # self.buttonBox_final.accepted.connect(self.handle_ok_button)
+
+    def selec_fr(self):
+        self.langue("FR")
+
+    def selec_en(self):
+        self.langue("EN")
+    def langue(self,langue):
+        with open('langue.json') as f:
+            data = json.load(f)
+        self.label_path.setText(data[langue]['Path'])
+        self.label_format.setText(data[langue]['Format'])
+        self.label_url.setText(data[langue]['URL'])
+        self.label_output.setText(data[langue]['Output'])
+        self.label_url.setText(data[langue]['URL'])
+        self.comboBox_format.setItemText(0,data[langue]['ListFormat'][0])
+        self.comboBox_format.setItemText(1, data[langue]['ListFormat'][1])
+        self.comboBox_format.setItemText(2, data[langue]['ListFormat'][2])
+        self.pushButton_path.setText(data[langue]['ButtonPath'])
+        self.pushButton_download.setText(data[langue]['ButtonDownload'])
+        self.pushButton_cancel.setText(data[langue]['ButtonCancel'])
+        self.menuSettings.setTitle(data[langue]['SettingMenu'])
+        self.menuLanguage.setTitle(data[langue]['LanguageMenu'])
+
 
     def append_html_to_plain_text_edit(self):
         self.plainTextEdit_output.appendHtml("<span style='color: orange;'>Téléchargement(s) en cours... </span><br>")

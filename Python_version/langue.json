@@ -1,0 +1,26 @@
+{
+  "FR": {
+    "Path": "Enregistrer sous :",
+    "URL": "Lien de la video :",
+    "Output": "Affichage de l'avancement du telechargement :",
+    "Format" : "Extension",
+    "ListFormat": ["MP4 (Video)","MP3 (Audio)","M4A (Audio)"],
+    "ButtonPath": "Selectionner",
+    "ButtonDownload": "Telecharger",
+    "ButtonCancel": "Annuler",
+    "SettingMenu": "Parametres",
+    "LanguageMenu": "Langues"
+  },
+  "EN": {
+    "Path": "Save as :",
+    "URL": "URL of the video :",
+    "Output": "Output of the progress :",
+    "Format" : "Format",
+    "ListFormat": ["MP4 (Video)","MP3 (Audio)","M4A (Audio)"],
+    "ButtonPath": "Select",
+    "ButtonDownload": "Download",
+    "ButtonCancel": "Cancel",
+    "SettingMenu": "Parametres",
+    "LanguageMenu": "Langues"
+  }
+}
