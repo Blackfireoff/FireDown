@@ -9,7 +9,8 @@
     "ButtonDownload": "Telecharger",
     "ButtonCancel": "Annuler",
     "SettingMenu": "Parametres",
-    "LanguageMenu": "Langues"
+    "LanguageMenu": "Langues",
+    "save_path_lang": "Enregistrer le dossier de telechargement"
   },
   "EN": {
     "Path": "Save as :",
@@ -21,6 +22,7 @@
     "ButtonDownload": "Download",
     "ButtonCancel": "Cancel",
     "SettingMenu": "Parametres",
-    "LanguageMenu": "Langues"
+    "LanguageMenu": "Langues",
+    "save_path_lang": "Save the path"
   }
 }

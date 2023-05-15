@@ -3,6 +3,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets, uic
 import yt_dlp
 import json
 
+
 class MainWindow(QtWidgets.QMainWindow):
     ok_button_clicked = QtCore.pyqtSignal()
     cancel_button_clicked = QtCore.pyqtSignal()
@@ -14,30 +15,56 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__(*args, **kwargs)
         uic.loadUi("mainwindows.ui", self)
         self.selec_fr()
+        with open('global_var.json') as f:
+            data = json.load(f)
+        if data['save_path_enable'] == "True":
+            self.actionSave_the_path.setChecked(True)
+            self.lineEdit_path.setText(data['save_path'])
+
         self.pushButton_download.clicked.connect(self.ok_button_clicked.emit)
         self.pushButton_download.clicked.connect(self.handle_ok_button)
         self.pushButton_cancel.clicked.connect(self.ok_button_clicked.emit)
         self.pushButton_cancel.clicked.connect(self.cancel_text)
         self.actionEnglish.triggered.connect(self.selec_en)
         self.actionFrancais.triggered.connect(self.selec_fr)
+        self.actionSave_the_path.triggered.connect(self.save_path)
         self.progressBar_items.hide()
         self.pushButton_path.clicked.connect(self.open_directory_dialog)
-        # self.buttonBox_final.accepted.connect(self.handle_ok_button)
+        self.setWindowTitle("VOD_Download")
+        icon_path = "icon.png"
+        icon = QtGui.QIcon(icon_path)
+        self.setWindowIcon(icon)
+        self.setFixedSize(684, 329)
+
+    def save_path(self):
+        with open('global_var.json','r') as f:
+            data = json.load(f)
+        if self.actionSave_the_path.isChecked():
+            data['save_path'] = self.lineEdit_path.text()
+            data['save_path_enable'] = "True"
+        else:
+            data['save_path'] = ""
+            data['save_path_enable'] = "False"
+        with open('global_var.json','w') as f:
+            json.dump(data, f, indent=4)
+        print("[JSON] Global_var - save_path : " + data['save_path'])
+        print("[JSON] Global_var - save_path_enable : " + data['save_path_enable'])
 
     def selec_fr(self):
         self.langue("FR")
 
     def selec_en(self):
         self.langue("EN")
-    def langue(self,langue):
+
+    def langue(self, langue):
         with open('langue.json') as f:
             data = json.load(f)
         self.label_path.setText(data[langue]['Path'])
         self.label_format.setText(data[langue]['Format'])
         self.label_url.setText(data[langue]['URL'])
         self.label_output.setText(data[langue]['Output'])
-        self.label_url.setText(data[langue]['URL'])
-        self.comboBox_format.setItemText(0,data[langue]['ListFormat'][0])
+        self.actionSave_the_path.setText(data[langue]['save_path_lang'])
+        self.comboBox_format.setItemText(0, data[langue]['ListFormat'][0])
         self.comboBox_format.setItemText(1, data[langue]['ListFormat'][1])
         self.comboBox_format.setItemText(2, data[langue]['ListFormat'][2])
         self.pushButton_path.setText(data[langue]['ButtonPath'])
@@ -45,7 +72,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButton_cancel.setText(data[langue]['ButtonCancel'])
         self.menuSettings.setTitle(data[langue]['SettingMenu'])
         self.menuLanguage.setTitle(data[langue]['LanguageMenu'])
-
 
     def append_html_to_plain_text_edit(self):
         self.plainTextEdit_output.appendHtml("<span style='color: orange;'>Téléchargement(s) en cours... </span><br>")
@@ -61,7 +87,7 @@ class MainWindow(QtWidgets.QMainWindow):
         print("[Info] - Nbr max :" + str(param))
         self.progressBar_items.setMaximum(param)
 
-    def show_error(self,param):
+    def show_error(self, param):
         print(param)
         self.plainTextEdit_output.appendHtml("<span style='color: red;'>/!\ Erreur rencontrée /!\</span><br>")
 
@@ -71,7 +97,7 @@ class MainWindow(QtWidgets.QMainWindow):
         path = self.lineEdit_path.text()
         current_index = self.comboBox_format.currentIndex()
         self.append_html_to_plain_text_edit()
-
+        self.save_path()
         print("url : " + url)
         print("path : " + path)
         print("current_index : " + str(current_index))
@@ -124,6 +150,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if selected_directory:
                 print("Chemin du dossier sélectionné :", selected_directory[0])
                 self.lineEdit_path.setText(selected_directory[0])
+                self.save_path()
 
 
 class Worker(QtCore.QObject):
@@ -153,7 +180,7 @@ class Worker(QtCore.QObject):
     def postprocessor_hook(self, info):
         # print(info)
         if info['status'] == 'finished':
-            if '__last_playlist_index' in info['info_dict'] :
+            if '__last_playlist_index' in info['info_dict']:
                 self.progress.emit(info['info_dict']['playlist_index'])
                 self.init_val.emit(info['info_dict']['__last_playlist_index'])
             else:
@@ -214,6 +241,7 @@ class Worker(QtCore.QObject):
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
     window = MainWindow()
+
     # window.ok_button_clicked.connect(window.handle_ok_button)
     window.show()
     app.exec_()
