@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>610</width>
-    <height>428</height>
+    <width>684</width>
+    <height>329</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -19,7 +19,7 @@
      <rect>
       <x>70</x>
       <y>120</y>
-      <width>481</width>
+      <width>541</width>
       <height>20</height>
      </rect>
     </property>
@@ -29,8 +29,8 @@
      <rect>
       <x>70</x>
       <y>100</y>
-      <width>47</width>
-      <height>13</height>
+      <width>221</width>
+      <height>16</height>
      </rect>
     </property>
     <property name="text">
@@ -42,8 +42,8 @@
      <rect>
       <x>70</x>
       <y>190</y>
-      <width>481</width>
-      <height>131</height>
+      <width>461</width>
+      <height>71</height>
      </rect>
     </property>
     <property name="readOnly">
@@ -53,9 +53,9 @@
    <widget class="QLineEdit" name="lineEdit_path">
     <property name="geometry">
      <rect>
-      <x>170</x>
+      <x>300</x>
       <y>50</y>
-      <width>331</width>
+      <width>311</width>
       <height>20</height>
      </rect>
     </property>
@@ -65,7 +65,7 @@
      <rect>
       <x>70</x>
       <y>50</y>
-      <width>69</width>
+      <width>101</width>
       <height>22</height>
      </rect>
     </property>
@@ -79,14 +79,19 @@
       <string>MP3</string>
      </property>
     </item>
+    <item>
+     <property name="text">
+      <string>M4A</string>
+     </property>
+    </item>
    </widget>
    <widget class="QLabel" name="label_output">
     <property name="geometry">
      <rect>
       <x>70</x>
       <y>170</y>
-      <width>47</width>
-      <height>13</height>
+      <width>261</width>
+      <height>16</height>
      </rect>
     </property>
     <property name="text">
@@ -98,8 +103,8 @@
      <rect>
       <x>70</x>
       <y>30</y>
-      <width>47</width>
-      <height>13</height>
+      <width>101</width>
+      <height>16</height>
      </rect>
     </property>
     <property name="text">
@@ -109,10 +114,10 @@
    <widget class="QLabel" name="label_path">
     <property name="geometry">
      <rect>
-      <x>170</x>
+      <x>200</x>
       <y>30</y>
-      <width>47</width>
-      <height>13</height>
+      <width>161</width>
+      <height>16</height>
      </rect>
     </property>
     <property name="text">
@@ -122,10 +127,10 @@
    <widget class="QPushButton" name="pushButton_download">
     <property name="geometry">
      <rect>
-      <x>380</x>
-      <y>350</y>
-      <width>75</width>
-      <height>23</height>
+      <x>540</x>
+      <y>192</y>
+      <width>81</width>
+      <height>31</height>
      </rect>
     </property>
     <property name="text">
@@ -135,10 +140,10 @@
    <widget class="QPushButton" name="pushButton_cancel">
     <property name="geometry">
      <rect>
-      <x>470</x>
-      <y>350</y>
-      <width>75</width>
-      <height>23</height>
+      <x>540</x>
+      <y>230</y>
+      <width>81</width>
+      <height>31</height>
      </rect>
     </property>
     <property name="text">
@@ -167,8 +172,8 @@
     </property>
     <property name="geometry">
      <rect>
-      <x>310</x>
-      <y>163</y>
+      <x>390</x>
+      <y>160</y>
       <width>221</width>
       <height>20</height>
      </rect>
@@ -189,9 +194,9 @@
    <widget class="QPushButton" name="pushButton_path">
     <property name="geometry">
      <rect>
-      <x>510</x>
+      <x>200</x>
       <y>50</y>
-      <width>41</width>
+      <width>91</width>
       <height>23</height>
      </rect>
     </property>
@@ -205,7 +210,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>610</width>
+     <width>684</width>
      <height>21</height>
     </rect>
    </property>
@@ -218,9 +223,10 @@
       <string>Language</string>
      </property>
      <addaction name="actionEnglish"/>
-     <addaction name="actionFran_ais"/>
+     <addaction name="actionFrancais"/>
     </widget>
     <addaction name="menuLanguage"/>
+    <addaction name="actionSave_the_path"/>
    </widget>
    <addaction name="menuSettings"/>
   </widget>
@@ -230,9 +236,17 @@
     <string>English</string>
    </property>
   </action>
-  <action name="actionFran_ais">
+  <action name="actionFrancais">
    <property name="text">
     <string>Français</string>
+   </property>
+  </action>
+  <action name="actionSave_the_path">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Save the path</string>
    </property>
   </action>
  </widget>
