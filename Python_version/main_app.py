@@ -144,6 +144,9 @@ class Worker(QtCore.QObject):
             self.video()
             self.finished.emit()
         if self.index == 1:
+            self.audio_mp3()
+            self.finished.emit()
+        if self.index == 2:
             self.audio_only()
             self.finished.emit()
 
@@ -169,6 +172,23 @@ class Worker(QtCore.QObject):
             'postprocessors': [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'm4a',
+            }],
+            'progress_hooks': [self.postprocessor_hook],
+            'quiet': 1
+        }
+        try:
+            self.yt.YoutubeDL(options).download(self.url)
+        except yt_dlp.utils.DownloadError as E:
+            self.error.emit(E.msg)
+
+    def audio_mp3(self):
+        options = {
+            'format': 'bestaudio/best',
+            'outtmpl': f'{self.path}/audio/%(title)s.%(ext)s',
+            'audioformat': 'mp3',
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
             }],
             'progress_hooks': [self.postprocessor_hook],
             'quiet': 1
