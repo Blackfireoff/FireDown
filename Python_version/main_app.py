@@ -14,13 +14,12 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         uic.loadUi("mainwindows.ui", self)
-        self.selec_fr()
         with open('global_var.json') as f:
             data = json.load(f)
         if data['save_path_enable'] == "True":
             self.actionSave_the_path.setChecked(True)
             self.lineEdit_path.setText(data['save_path'])
-
+        self.langue(data['language_select'])
         self.pushButton_download.clicked.connect(self.ok_button_clicked.emit)
         self.pushButton_download.clicked.connect(self.handle_ok_button)
         self.pushButton_cancel.clicked.connect(self.ok_button_clicked.emit)
@@ -30,14 +29,26 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actionSave_the_path.triggered.connect(self.save_path)
         self.progressBar_items.hide()
         self.pushButton_path.clicked.connect(self.open_directory_dialog)
+
+
+
         self.setWindowTitle("VOD_Download")
         icon_path = "icon.png"
         icon = QtGui.QIcon(icon_path)
         self.setWindowIcon(icon)
         self.setFixedSize(684, 329)
 
+    # def dialogue_redemarrage(self):
+    #    Créer une boîte de dialogue d'information
+    #    dialogue = QtWidgets.QMessageBox()
+    #    dialogue.setWindowTitle("Information")
+    #    dialogue.setText("Veuillez redemarrer l'application pour que les changements prennent effet.")
+    #    dialogue.setIcon(QtWidgets.QMessageBox.Information)
+    #    dialogue.addButton(QtWidgets.QMessageBox.Ok)
+    #    dialogue.exec_()
+
     def save_path(self):
-        with open('global_var.json','r') as f:
+        with open('global_var.json', 'r') as f:
             data = json.load(f)
         if self.actionSave_the_path.isChecked():
             data['save_path'] = self.lineEdit_path.text()
@@ -45,7 +56,7 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             data['save_path'] = ""
             data['save_path_enable'] = "False"
-        with open('global_var.json','w') as f:
+        with open('global_var.json', 'w') as f:
             json.dump(data, f, indent=4)
         print("[JSON] Global_var - save_path : " + data['save_path'])
         print("[JSON] Global_var - save_path_enable : " + data['save_path_enable'])
@@ -53,12 +64,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def selec_fr(self):
         self.langue("FR")
 
+
     def selec_en(self):
         self.langue("EN")
 
     def langue(self, langue):
-        with open('langue.json') as f:
+        with open('langue.json', 'r') as f:
             data = json.load(f)
+
         self.label_path.setText(data[langue]['Path'])
         self.label_format.setText(data[langue]['Format'])
         self.label_url.setText(data[langue]['URL'])
@@ -72,6 +85,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pushButton_cancel.setText(data[langue]['ButtonCancel'])
         self.menuSettings.setTitle(data[langue]['SettingMenu'])
         self.menuLanguage.setTitle(data[langue]['LanguageMenu'])
+
+        with open('global_var.json', 'r') as f:
+            data = json.load(f)
+        data['language_select'] = langue
+        with open('global_var.json', 'w') as f:
+            json.dump(data, f, indent=4)
+
+
 
     def append_html_to_plain_text_edit(self):
         self.plainTextEdit_output.appendHtml("<span style='color: orange;'>Téléchargement(s) en cours... </span><br>")

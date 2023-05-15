@@ -21,8 +21,8 @@
     "ButtonPath": "Select",
     "ButtonDownload": "Download",
     "ButtonCancel": "Cancel",
-    "SettingMenu": "Parametres",
-    "LanguageMenu": "Langues",
+    "SettingMenu": "Settings",
+    "LanguageMenu": "Language",
     "save_path_lang": "Save the path"
   }
 }
