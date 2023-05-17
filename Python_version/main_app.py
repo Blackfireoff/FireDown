@@ -51,7 +51,7 @@ class MainWindow(QtWidgets.QMainWindow):
         with open('global_var.json', 'r') as f:
             data = json.load(f)
         if self.actionSave_the_path.isChecked():
-            data['save_path'] = self.lineEdit_path.text()
+            data['save_path'] = self.lineEdit_path.text().replace(" ", "")
             data['save_path_enable'] = "True"
         else:
             data['save_path'] = ""
@@ -114,8 +114,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def handle_ok_button(self):
 
-        url = self.lineEdit_url.text()
-        path = self.lineEdit_path.text()
+        url = self.lineEdit_url.text().replace(" ", "")
+        path = self.lineEdit_path.text().replace(" ", "")
         current_index = self.comboBox_format.currentIndex()
         self.append_html_to_plain_text_edit()
         self.save_path()
