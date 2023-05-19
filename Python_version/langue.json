@@ -10,7 +10,10 @@
     "ButtonCancel": "Annuler",
     "SettingMenu": "Parametres",
     "LanguageMenu": "Langues",
-    "save_path_lang": "Enregistrer le dossier de telechargement"
+    "save_path_lang": "Enregistrer le dossier de telechargement",
+    "HelpMenuTitle": "Aide",
+    "ShowSupportedWebsite": "Afficher les sites supportés",
+    "ShowAdvanceLog": "Afficher plus de logs"
   },
   "EN": {
     "Path": "Save as :",
@@ -23,6 +26,9 @@
     "ButtonCancel": "Cancel",
     "SettingMenu": "Settings",
     "LanguageMenu": "Language",
-    "save_path_lang": "Save the path"
+    "save_path_lang": "Save the path",
+    "HelpMenuTitle": "Help",
+    "ShowSupportedWebsite": "Show supported website",
+    "ShowAdvanceLog": "Show advance log"
   }
 }
