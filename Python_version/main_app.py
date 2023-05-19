@@ -1,3 +1,4 @@
+import io
 import sys
 from PyQt5 import QtCore, QtGui, QtWidgets, uic
 import yt_dlp
@@ -260,6 +261,11 @@ class Worker(QtCore.QObject):
 
 
 if __name__ == '__main__':
+    if sys.stderr is None:
+        stream = io.StringIO()
+        sys.stdout = stream
+        sys.stderr = stream
+
     app = QtWidgets.QApplication(sys.argv)
     window = MainWindow()
 
