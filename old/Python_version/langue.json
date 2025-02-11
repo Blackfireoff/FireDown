@@ -1,0 +1,34 @@
+{
+  "FR": {
+    "Path": "Enregistrer sous :",
+    "URL": "Lien de la video :",
+    "Output": "Affichage de l'avancement du telechargement :",
+    "Format" : "Extension",
+    "ListFormat": ["MP4 (Video)","MP3 (Audio)","M4A (Audio)"],
+    "ButtonPath": "Selectionner",
+    "ButtonDownload": "Telecharger",
+    "ButtonCancel": "Annuler",
+    "SettingMenu": "Parametres",
+    "LanguageMenu": "Langues",
+    "save_path_lang": "Enregistrer le dossier de telechargement",
+    "HelpMenuTitle": "Aide",
+    "ShowSupportedWebsite": "Afficher les sites supportés",
+    "ShowAdvanceLog": "Afficher plus de logs"
+  },
+  "EN": {
+    "Path": "Save as :",
+    "URL": "URL of the video :",
+    "Output": "Output of the progress :",
+    "Format" : "Format",
+    "ListFormat": ["MP4 (Video)","MP3 (Audio)","M4A (Audio)"],
+    "ButtonPath": "Select",
+    "ButtonDownload": "Download",
+    "ButtonCancel": "Cancel",
+    "SettingMenu": "Settings",
+    "LanguageMenu": "Language",
+    "save_path_lang": "Save the path",
+    "HelpMenuTitle": "Help",
+    "ShowSupportedWebsite": "Show supported website",
+    "ShowAdvanceLog": "Show advance log"
+  }
+}

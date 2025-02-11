@@ -1,2 +1,9 @@
 /Python_version/videos/
 .idea
+webapp/backend/__pycache__
+webapp/backend/venv
+webapp/backend/downloads
+webapp/backend/.env
+
+webapp/frontend/node_modules
+webapp/backend/ffmpeg

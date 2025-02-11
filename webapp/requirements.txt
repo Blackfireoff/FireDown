@@ -1,0 +1,7 @@
+fastapi==0.109.2
+uvicorn==0.27.1
+python-multipart==0.0.6
+yt-dlp
+python-dotenv==1.0.1
+aiofiles==23.2.1
+zipfile36==0.1.3 
