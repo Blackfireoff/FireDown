@@ -9,41 +9,50 @@ const DownloadProgress = ({
 }) => {
   if (!downloading) return null;
 
+  const isBatchDownload = batchProgress && batchProgress.total > 1;
+
   return (
-    <div className="mt-6 bg-gray-50 p-4 rounded-lg">
-      <div className="flex items-center gap-4">
-        {currentVideoInfo && currentVideoInfo.thumbnail && (
-          <img src={currentVideoInfo.thumbnail} alt="" className="w-24 h-24 object-cover rounded" />
-        )}
-        <div className="flex-1">
-          <h3 className="font-medium text-gray-900">
-            {currentVideoInfo ? currentVideoInfo.title : 'Téléchargement en cours...'}
+    <div className="mt-8">
+      <div className="bg-gray-50 rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-medium text-gray-900">
+            {isBatchDownload 
+              ? `Téléchargement groupé (${batchProgress.current}/${batchProgress.total})`
+              : 'Téléchargement en cours'
+            }
           </h3>
-          {batchProgress.total > 0 ? (
-            <>
-              <div className="text-sm text-gray-600 mb-2">
-                Fichiers téléchargés: {batchProgress.current} / {batchProgress.total}
-              </div>
+          <span className="text-sm text-gray-500">
+            {Math.round(progress)}%
+          </span>
+        </div>
+
+        {/* Barre de progression */}
+        <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+          <motion.div
+            className="h-full bg-blue-600"
+            initial={{ width: 0 }}
+            animate={{ width: `${progress}%` }}
+            transition={{ duration: 0.5 }}
+          />
+        </div>
+
+        {/* Informations sur le fichier en cours */}
+        <div className="mt-4">
+          {isBatchDownload ? (
+            <div>
               {batchProgress.currentItem && (
-                <div className="text-sm text-gray-600 mb-2">
-                  En cours: {batchProgress.currentItem.title}
-                </div>
+                <p className="text-sm text-gray-600">
+                  {batchProgress.currentItem.title}
+                </p>
               )}
-            </>
-          ) : null}
-          <div className="mt-2">
-            <div className="relative pt-1">
-              <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-purple-200">
-                <motion.div
-                  initial={{ width: 0 }}
-                  animate={{ width: `${progress}%` }}
-                  transition={{ duration: 0.5 }}
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-purple-500"
-                />
-              </div>
-              <div className="text-center text-sm text-gray-600">{progress}%</div>
             </div>
-          </div>
+          ) : (
+            currentVideoInfo && (
+              <p className="text-sm text-gray-600">
+                {currentVideoInfo.title}
+              </p>
+            )
+          )}
         </div>
       </div>
     </div>

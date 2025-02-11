@@ -44,6 +44,7 @@ class DownloadStatus:
         self.filename = ""
         self.is_ready = False
         self.error = None
+        self.download_folder = ""
 
 class VideoInfo(BaseModel):
     title: str
@@ -64,6 +65,10 @@ class BatchStatus:
         self.is_ready = False
         self.error = None
         self.downloads = {}
+        self.current_index = 0
+        self.total_files = 0
+        self.completed_files = []
+        self.failed_files = []
 
 # Stockage des statuts de téléchargement
 download_statuses = {}
@@ -119,10 +124,9 @@ def format_size(size: int) -> str:
 # Fonction de téléchargement
 # ---------------------------
 async def download_video(url: str, format_type: str, quality: str, file_format: str, download_id: str):
-    status = DownloadStatus()
-    download_statuses[download_id] = status
-
-    download_folder = os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
+    status = download_statuses[download_id]
+    
+    download_folder = status.download_folder if status.download_folder else os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
     os.makedirs(download_folder, exist_ok=True)
 
     ffmpeg_location = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "bin")
@@ -184,7 +188,7 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
                 downloaded_file = os.path.join(download_folder, files[0])
                 if format_type == "video" and file_format not in ['mp4', 'webm']:
                     final_filename = f"{os.path.splitext(os.path.basename(downloaded_file))[0]}.{file_format}"
-                    final_path = os.path.join(DOWNLOAD_DIR, final_filename)
+                    final_path = os.path.join(download_folder, final_filename)
                     try:
                         import subprocess
                         cmd = [
@@ -195,24 +199,18 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
                             final_path
                         ]
                         subprocess.run(cmd, check=True)
+                        status.filename = final_filename
                     except subprocess.CalledProcessError as e:
-                        final_path = os.path.join(DOWNLOAD_DIR, os.path.basename(downloaded_file))
-                        shutil.copy2(downloaded_file, final_path)
-                        final_filename = os.path.basename(downloaded_file)
+                        status.filename = os.path.basename(downloaded_file)
                 else:
-                    final_filename = os.path.basename(downloaded_file)
-                    final_path = os.path.join(DOWNLOAD_DIR, final_filename)
-                    shutil.copy2(downloaded_file, final_path)
-                
-                status.filename = final_filename
+                    status.filename = os.path.basename(downloaded_file)
 
-            shutil.rmtree(download_folder)
             status.progress = 100
             status.is_ready = True
 
     except Exception as e:
-        if os.path.exists(download_folder):
-            shutil.rmtree(download_folder)
+        # if os.path.exists(download_folder):
+        #     shutil.rmtree(download_folder)
         status.error = str(e)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -282,8 +280,8 @@ async def cleanup(download_id: str):
     file_path = os.path.join(DOWNLOAD_DIR, status.filename)
     
     try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        # if os.path.exists(file_path):
+        #     os.remove(file_path)
         del download_statuses[download_id]
         return {"status": "success"}
     except Exception as e:
@@ -352,50 +350,66 @@ async def startup_event():
     
     asyncio.create_task(cleanup_downloads())
 
-async def create_batch_zip(batch_id: str, download_ids: list[str]):
+async def process_batch_downloads(batch_id: str, videos: list[DownloadRequest]):
     try:
         batch_status = batch_statuses[batch_id]
-        failed_downloads = []
-        successful_downloads = []
+        batch_status.total_files = len(videos)
         
-        # Attendre que tous les téléchargements soient terminés
-        while True:
-            all_complete = True
-            total_progress = 0
-            completed = 0
-            
-            for download_id in download_ids:
-                if download_id in download_statuses:
-                    status = download_statuses[download_id]
-                    if status.error:
-                        failed_downloads.append({
-                            'id': download_id,
-                            'error': status.error,
-                            'title': status.title
-                        })
-                        total_progress += 100
-                        completed += 1
-                    elif not status.is_ready:
-                        all_complete = False
-                        total_progress += status.progress
-                    else:
-                        successful_downloads.append(download_id)
-                        total_progress += 100
-                        completed += 1
-                        batch_status.downloads[download_id] = True
-            
-            batch_status.progress = total_progress / len(download_ids)
-            
-            if all_complete or (len(failed_downloads) + len(successful_downloads) == len(download_ids)):
-                break
+        # Créer un dossier commun pour tous les fichiers du batch
+        batch_folder = os.path.join(DOWNLOAD_DIR, f"batch_{batch_id}")
+        os.makedirs(batch_folder, exist_ok=True)
+        
+        # Traiter chaque vidéo séquentiellement
+        for index, video in enumerate(videos, 1):
+            try:
+                batch_status.current_index = index
+                batch_status.current_video = f"Téléchargement {index}/{batch_status.total_files}"
                 
-            await asyncio.sleep(1)
+                # Télécharger la vidéo
+                download_id = str(uuid.uuid4())
+                status = DownloadStatus()
+                download_statuses[download_id] = status
+                
+                # Modifier le dossier de destination dans download_video
+                status.download_folder = batch_folder
+                
+                await download_video(
+                    video.url,
+                    video.format,
+                    video.quality,
+                    video.fileFormat,
+                    download_id
+                )
+                
+                if status.error:
+                    batch_status.failed_files.append({
+                        'index': index,
+                        'title': status.title,
+                        'error': status.error
+                    })
+                else:
+                    batch_status.completed_files.append({
+                        'index': index,
+                        'title': status.title,
+                        'filename': status.filename,
+                        'filepath': os.path.join(batch_folder, status.filename)
+                    })
+                
+                # Mettre à jour la progression globale
+                batch_status.progress = (index / batch_status.total_files) * 100
+                
+            except Exception as e:
+                batch_status.failed_files.append({
+                    'index': index,
+                    'title': f"Vidéo {index}",
+                    'error': str(e)
+                })
         
-        # Si tous les téléchargements ont échoué
-        if len(successful_downloads) == 0:
+        # Si aucun fichier n'a été téléchargé avec succès
+        if not batch_status.completed_files:
             error_msg = "Tous les téléchargements ont échoué:\n"
-            for fail in failed_downloads:
-                error_msg += f"- {fail['title']}: {fail['error']}\n"
+            for fail in batch_status.failed_files:
+                error_msg += f"- Fichier {fail['index']}: {fail['error']}\n"
             batch_status.error = error_msg
             return
         
@@ -403,26 +417,40 @@ async def create_batch_zip(batch_id: str, download_ids: list[str]):
         zip_filename = f"batch_{batch_id}.zip"
         zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
         
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for download_id in successful_downloads:
-                if download_id in download_statuses:
-                    status = download_statuses[download_id]
-                    if status.is_ready and status.filename:
-                        file_path = os.path.join(DOWNLOAD_DIR, status.filename)
-                        if os.path.exists(file_path):
-                            zipf.write(file_path, status.filename)
-                            os.remove(file_path)  # Supprimer le fichier original
+        try:
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for completed in batch_status.completed_files:
+                    file_path = completed['filepath']
+                    if os.path.exists(file_path):
+                        try:
+                            # Ajouter le fichier au ZIP avec son nom comme chemin relatif
+                            zipf.write(file_path, completed['filename'])
+                        except Exception as e:
+                            print(f"Erreur lors de l'ajout du fichier {file_path} au ZIP: {e}")
+                            continue
+            
+            # Vérifier que le ZIP n'est pas vide
+            if os.path.getsize(zip_path) == 0:
+                raise Exception("Le fichier ZIP créé est vide")
+                
+            # Ne pas supprimer les fichiers pour l'instant
+            # Le nettoyage sera fait plus tard
+                
+        except Exception as e:
+            print(f"Erreur lors de la création du ZIP: {e}")
+            batch_status.error = f"Erreur lors de la création du ZIP: {str(e)}"
+            return
         
         batch_status.filename = zip_filename
         batch_status.is_ready = True
         
         # Si certains téléchargements ont échoué
-        if len(failed_downloads) > 0:
+        if batch_status.failed_files:
             error_msg = "Certains téléchargements ont échoué:\n"
-            for fail in failed_downloads:
-                error_msg += f"- {fail['title']}: {fail['error']}\n"
+            for fail in batch_status.failed_files:
+                error_msg += f"- Fichier {fail['index']}: {fail['error']}\n"
             batch_status.error = error_msg
-        
+            
     except Exception as e:
         batch_status.error = str(e)
         raise
@@ -430,27 +458,13 @@ async def create_batch_zip(batch_id: str, download_ids: list[str]):
 @app.post("/start-batch-download")
 async def start_batch_download(request: BatchDownloadRequest, background_tasks: BackgroundTasks):
     batch_id = str(uuid.uuid4())
-    download_ids = []
     
     try:
         # Initialiser le statut du lot
         batch_statuses[batch_id] = BatchStatus()
         
-        # Démarrer chaque téléchargement
-        for video in request.videos:
-            download_id = str(uuid.uuid4())
-            download_ids.append(download_id)
-            background_tasks.add_task(
-                download_video,
-                video.url,
-                video.format,
-                video.quality,
-                video.fileFormat,
-                download_id
-            )
-        
-        # Démarrer la création du ZIP en arrière-plan
-        background_tasks.add_task(create_batch_zip, batch_id, download_ids)
+        # Démarrer le traitement en arrière-plan
+        background_tasks.add_task(process_batch_downloads, batch_id, request.videos)
         
         return {"batch_id": batch_id}
         
@@ -467,7 +481,12 @@ async def check_batch_status(batch_id: str):
     status = batch_statuses[batch_id]
     response = {
         "progress": status.progress,
-        "is_ready": status.is_ready
+        "current_index": status.current_index,
+        "total_files": status.total_files,
+        "current_video": status.current_video,
+        "is_ready": status.is_ready,
+        "completed_files": len(status.completed_files),
+        "failed_files": len(status.failed_files)
     }
     
     if status.error:
@@ -505,8 +524,8 @@ async def cleanup_batch(batch_id: str):
     file_path = os.path.join(DOWNLOAD_DIR, status.filename)
     
     try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        # if os.path.exists(file_path):
+        #     os.remove(file_path)
         del batch_statuses[batch_id]
         return {"status": "success"}
     except Exception as e:

@@ -282,115 +282,119 @@ function App() {
     if (queue.length === 0) return;
     
     try {
-      setDownloading(true);
-      setProgress(0);
-      setError('');
-      setBatchProgress({
-        current: 0,
-        total: queue.length,
-        currentItem: null
-      });
-      
-      console.log('Starting batch download for', queue.length, 'items');
+        setDownloading(true);
+        setProgress(0);
+        setError('');
+        setBatchProgress({
+            current: 0,
+            total: queue.length,
+            currentItem: null
+        });
+        
+        console.log('Starting batch download for', queue.length, 'items');
 
-      // Si un seul élément dans la queue, on utilise le téléchargement simple
-      if (queue.length === 1) {
-        await handleDownloadSingle(queue[0]);
-        setQueue([]);
-        return;
-      }
-
-      // Démarrer le téléchargement par lot
-      const response = await axios.post('http://localhost:8000/start-batch-download', {
-        videos: queue.map(item => ({
-          url: cleanYoutubeUrl(item.url),
-          format: item.format,
-          quality: item.quality,
-          fileFormat: item.fileFormat
-        }))
-      });
-
-      console.log('Batch download initiated:', response.data);
-      const batchId = response.data.batch_id;
-
-      // Vérifier le statut toutes les 5 secondes
-      const checkStatus = async () => {
-        try {
-          const statusResponse = await axios.get(`http://localhost:8000/check-batch-status/${batchId}`);
-          const status = statusResponse.data;
-          
-          setProgress(status.progress);
-          setBatchProgress(prev => ({
-            ...prev,
-            current: Math.floor((status.progress / 100) * queue.length),
-            currentItem: { title: "Téléchargement en cours...", progress: status.progress }
-          }));
-
-          if (status.error) {
-            throw new Error(status.error);
-          }
-
-          if (status.is_ready && status.filename) {
-            // Télécharger le fichier ZIP
-            console.log('ZIP file is ready, downloading:', status.filename);
-            const downloadResponse = await axios.get(
-              `http://localhost:8000/download-batch/${batchId}`,
-              { responseType: 'blob' }
-            );
-
-            // Créer le lien de téléchargement
-            const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = status.filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-
-            // Nettoyer les fichiers sur le serveur
-            await axios.post(`http://localhost:8000/cleanup-batch/${batchId}`);
-            
+        // Si un seul élément dans la queue, on utilise le téléchargement simple
+        if (queue.length === 1) {
+            await handleDownloadSingle(queue[0]);
             setQueue([]);
-            setDownloading(false);
-            setProgress(0);
-            setBatchProgress({
-              current: 0,
-              total: 0,
-              currentItem: null
-            });
             return;
-          }
+        }
 
-          // Continuer à vérifier toutes les 5 secondes
-          setTimeout(checkStatus, 5000);
-        } catch (error) {
-          console.error('Error checking batch status:', error);
-          setError(error.message || 'Une erreur est survenue');
-          setDownloading(false);
-          setBatchProgress({
+        // Démarrer le téléchargement par lot
+        const response = await axios.post('http://localhost:8000/start-batch-download', {
+            videos: queue.map(item => ({
+                url: cleanYoutubeUrl(item.url),
+                format: item.format,
+                quality: item.quality,
+                fileFormat: item.fileFormat
+            }))
+        });
+
+        console.log('Batch download initiated:', response.data);
+        const batchId = response.data.batch_id;
+
+        // Vérifier le statut toutes les 5 secondes
+        const checkStatus = async () => {
+            try {
+                const statusResponse = await axios.get(`http://localhost:8000/check-batch-status/${batchId}`);
+                const status = statusResponse.data;
+                
+                setProgress(status.progress);
+                setBatchProgress(prev => ({
+                    ...prev,
+                    current: status.current_index,
+                    total: status.total_files,
+                    currentItem: {
+                        title: status.current_video,
+                        progress: status.progress
+                    }
+                }));
+
+                if (status.error) {
+                    setError(status.error);
+                }
+
+                if (status.is_ready && status.filename) {
+                    // Télécharger le fichier ZIP
+                    console.log('ZIP file is ready, downloading:', status.filename);
+                    const downloadResponse = await axios.get(
+                        `http://localhost:8000/download-batch/${batchId}`,
+                        { responseType: 'blob' }
+                    );
+
+                    // Créer le lien de téléchargement
+                    const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
+                    const url = window.URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = status.filename;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    window.URL.revokeObjectURL(url);
+
+                    // Nettoyer les fichiers sur le serveur
+                    await axios.post(`http://localhost:8000/cleanup-batch/${batchId}`);
+                    
+                    setQueue([]);
+                    setDownloading(false);
+                    setProgress(0);
+                    setBatchProgress({
+                        current: 0,
+                        total: 0,
+                        currentItem: null
+                    });
+                    return;
+                }
+
+                // Continuer à vérifier toutes les 5 secondes
+                setTimeout(checkStatus, 5000);
+            } catch (error) {
+                console.error('Error checking batch status:', error);
+                setError(error.response?.data?.detail || 'Une erreur est survenue');
+                setDownloading(false);
+                setBatchProgress({
+                    current: 0,
+                    total: 0,
+                    currentItem: null
+                });
+            }
+        };
+
+        // Démarrer la vérification du statut
+        checkStatus();
+        
+    } catch (error) {
+        console.error('Batch download error:', error);
+        setError(error.response?.data?.detail || 'Erreur lors du téléchargement groupé');
+        setDownloading(false);
+        setBatchProgress({
             current: 0,
             total: 0,
             currentItem: null
-          });
-        }
-      };
-
-      // Démarrer la vérification du statut
-      checkStatus();
-      
-    } catch (error) {
-      console.error('Batch download error:', error);
-      setError(error.message || 'Erreur lors du téléchargement groupé');
-      setDownloading(false);
-      setBatchProgress({
-        current: 0,
-        total: 0,
-        currentItem: null
-      });
+        });
     }
-  };
+};
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-500 py-12 px-4 sm:px-6 lg:px-8">
