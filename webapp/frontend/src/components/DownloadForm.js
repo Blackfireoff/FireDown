@@ -107,20 +107,6 @@ const DownloadForm = ({
           )}
           {isAddingToQueue ? 'Ajout en cours...' : 'Ajouter à la liste'}
         </motion.button>
-        
-        <motion.button
-          whileHover={{ scale: downloading ? 1 : 1.02 }}
-          whileTap={{ scale: downloading ? 1 : 0.98 }}
-          type="button"
-          onClick={() => onSingleDownload({ url, format, quality, fileFormat })}
-          disabled={downloading || !url || isAddingToQueue}
-          className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-            downloading || isAddingToQueue ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-          }`}
-        >
-          <FaDownload />
-          Téléchargement unique
-        </motion.button>
       </div>
     </form>
   );

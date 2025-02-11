@@ -335,9 +335,6 @@ function App() {
         currentItem: null
       });
       
-      // Démarrer la session de téléchargement
-      await axios.post(`http://localhost:8000/start-session/${sessionId}`);
-      
       let completedDownloads = 0;
       
       // Démarrer les téléchargements individuels
@@ -425,27 +422,49 @@ function App() {
         }
       }
       
-      // Une fois tous les téléchargements terminés, télécharger le ZIP
+      // Une fois tous les téléchargements terminés, télécharger le fichier
       try {
-        const response = await axios.get(
-          `http://localhost:8000/session/${sessionId}/download`,
-          { responseType: 'blob' }
-        );
-        
-        // Créer le lien de téléchargement
-        const blob = new Blob([response.data], { type: 'application/zip' });
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `session_${sessionId}.zip`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
+        if (queue.length === 1) {
+          // Pour une seule vidéo, télécharger directement le fichier
+          const response = await axios.get(
+            `http://localhost:8000/session/${sessionId}/download-single`,
+            { responseType: 'blob' }
+          );
+          
+          // Créer le lien de téléchargement
+          const blob = new Blob([response.data]);
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          // Utiliser le nom du fichier de la vidéo si disponible
+          const videoFile = queue[0];
+          link.download = videoFile.filename || `video_${sessionId}${getFileExtension(videoFile.fileFormat)}`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } else {
+          // Pour plusieurs vidéos, créer un ZIP
+          const response = await axios.get(
+            `http://localhost:8000/session/${sessionId}/download`,
+            { responseType: 'blob' }
+          );
+          
+          // Créer le lien de téléchargement
+          const blob = new Blob([response.data], { type: 'application/zip' });
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `session_${sessionId}.zip`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        }
         
       } catch (error) {
-        console.error('Error downloading ZIP:', error);
-        setError('Erreur lors du téléchargement du fichier ZIP');
+        console.error('Error downloading file:', error);
+        setError('Erreur lors du téléchargement du fichier');
       }
       
       setDownloading(false);
@@ -466,6 +485,11 @@ function App() {
         currentItem: null
       });
     }
+  };
+
+  // Fonction utilitaire pour obtenir l'extension de fichier
+  const getFileExtension = (format) => {
+    return format.startsWith('.') ? format : `.${format}`;
   };
 
   return (

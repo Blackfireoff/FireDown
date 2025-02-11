@@ -147,12 +147,8 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
     status.session_id = session_id
     
     try:
-        # Configurer le dossier de téléchargement
-        if session_id:
-            download_folder = os.path.join(DOWNLOAD_DIR, f"session_{session_id}")
-        else:
-            download_folder = os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
-        
+        # Un seul dossier pour tout
+        download_folder = os.path.join(DOWNLOAD_DIR, "videos")
         os.makedirs(download_folder, exist_ok=True)
         status.download_folder = download_folder
 
@@ -775,20 +771,20 @@ async def get_session_status(session_id: str):
 
 @app.get("/session/{session_id}/download")
 async def download_session(session_id: str):
-    session_folder = os.path.join(DOWNLOAD_DIR, f"session_{session_id}")
-    if not os.path.exists(session_folder):
-        raise HTTPException(status_code=404, detail="Session folder not found")
+    download_folder = os.path.join(DOWNLOAD_DIR, "videos")
+    if not os.path.exists(download_folder):
+        raise HTTPException(status_code=404, detail="Download folder not found")
     
-    # Créer le ZIP avec tous les fichiers de la session
-    zip_filename = f"session_{session_id}.zip"
+    # Créer le ZIP avec tous les fichiers
+    zip_filename = f"videos.zip"
     zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
     
     try:
         with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for root, dirs, files in os.walk(session_folder):
+            for root, dirs, files in os.walk(download_folder):
                 for file in files:
                     file_path = os.path.join(root, file)
-                    arcname = os.path.relpath(file_path, session_folder)
+                    arcname = os.path.relpath(file_path, download_folder)
                     zipf.write(file_path, arcname)
         
         return FileResponse(
@@ -801,3 +797,24 @@ async def download_session(session_id: str):
         if os.path.exists(zip_path):
             os.remove(zip_path)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/session/{session_id}/download-single")
+async def download_single_file(session_id: str):
+    download_folder = os.path.join(DOWNLOAD_DIR, "videos")
+    if not os.path.exists(download_folder):
+        raise HTTPException(status_code=404, detail="Download folder not found")
+    
+    # Trouver le fichier le plus récent dans le dossier
+    files = [f for f in os.listdir(download_folder) if os.path.isfile(os.path.join(download_folder, f))]
+    if not files:
+        raise HTTPException(status_code=404, detail="No files found")
+    
+    # Prendre le fichier le plus récent
+    latest_file = max(files, key=lambda f: os.path.getctime(os.path.join(download_folder, f)))
+    file_path = os.path.join(download_folder, latest_file)
+    
+    return FileResponse(
+        file_path,
+        media_type='application/octet-stream',
+        filename=latest_file
+    )
