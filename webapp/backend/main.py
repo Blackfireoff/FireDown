@@ -53,6 +53,11 @@ class VideoInfo(BaseModel):
     size: Optional[str] = None
     isPlaylist: bool = False
     playlistItems: list = []
+    status: str = "pending"  # pending, downloading, completed, error
+    progress: float = 0
+    error: Optional[str] = None
+    download_id: Optional[str] = None  # Pour suivre l'état du téléchargement
+    session_id: Optional[str] = None  # Pour suivre la session de l'utilisateur
 
 class BatchDownloadRequest(BaseModel):
     videos: list[DownloadRequest]
@@ -75,6 +80,17 @@ download_statuses = {}
 
 # Stockage des statuts de téléchargement par lot
 batch_statuses = {}
+
+# Stockage des sessions
+download_sessions = {}
+
+class DownloadSession(BaseModel):
+    session_id: str
+    created_at: float
+    videos: list[VideoInfo]
+    status: str = "pending"  # pending, downloading, completed, error
+    total_progress: float = 0
+    current_video_index: int = 0
 
 # ---------------------------
 # Fonctions utilitaires
@@ -300,53 +316,72 @@ async def get_video_info(url: str):
             'no_check_certificates': True,
             'nocheckcertificate': True,
             'quiet': True,
-            'extract_flat': True,  # Important pour les playlists
+            'extract_flat': True,
             'force_generic_extractor': False,
-            'ignoreerrors': True,  # Ignorer les vidéos non disponibles
+            'ignoreerrors': True,
         }
+        
+        async def extract_video_info(video_url):
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                try:
+                    info = ydl.extract_info(video_url, download=False)
+                    if info is None:
+                        return None
+                    
+                    return {
+                        'title': info.get('title', 'Unknown'),
+                        'duration': format_duration(info.get('duration', 0)),
+                        'thumbnail': info.get('thumbnail', None),
+                        'url': info.get('webpage_url', None),
+                        'id': info.get('id', None),
+                        'size': format_size(info.get('filesize', 0)) if info.get('filesize') else None,
+                        'status': 'pending'  # État initial
+                    }
+                except Exception as e:
+                    print(f"Erreur lors de l'extraction de {video_url}: {str(e)}")
+                    return None
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info = ydl.extract_info(url, download=False)
-                if info is None:
-                    raise Exception("Impossible d'extraire les informations")
+            info = ydl.extract_info(url, download=False)
+            if info is None:
+                raise Exception("Impossible d'extraire les informations")
+            
+            if 'entries' in info:  # C'est une playlist
+                playlist_items = []
+                total_duration = 0
                 
-                if 'entries' in info:  # C'est une playlist
-                    playlist_items = []
-                    for entry in info['entries']:
-                        if entry:  # Vérifier que l'entrée existe
-                            try:
-                                playlist_items.append({
-                                    'title': entry.get('title', 'Unknown'),
-                                    'duration': format_duration(entry.get('duration', 0)),
-                                    'thumbnail': entry.get('thumbnail', None),
-                                    'url': entry.get('url') or entry.get('webpage_url'),
-                                    'id': entry.get('id', None)
-                                })
-                            except Exception as e:
-                                print(f"Erreur lors de l'extraction d'une vidéo de la playlist: {str(e)}")
-                                continue
-                    
-                    if not playlist_items:
-                        raise Exception("Aucune vidéo valide trouvée dans la playlist")
-                    
-                    return VideoInfo(
-                        title=info.get('title', 'Unknown Playlist'),
-                        duration=f"{len(playlist_items)} videos",
-                        thumbnail=info.get('thumbnail') or (playlist_items[0].get('thumbnail') if playlist_items else None),
-                        isPlaylist=True,
-                        playlistItems=playlist_items
-                    )
-                else:  # C'est une vidéo unique
-                    return VideoInfo(
-                        title=info.get('title', 'Unknown'),
-                        duration=format_duration(info.get('duration', 0)),
-                        thumbnail=info.get('thumbnail', None),
-                        size=format_size(info.get('filesize', 0)) if info.get('filesize') else None,
-                        isPlaylist=False
-                    )
-            except Exception as e:
-                print(f"Erreur lors de l'extraction des informations: {str(e)}")
-                raise
+                for entry in info['entries']:
+                    if entry and entry.get('url') or entry.get('webpage_url'):
+                        video_info = await extract_video_info(entry.get('url') or entry.get('webpage_url'))
+                        if video_info:
+                            playlist_items.append(video_info)
+                            if 'duration' in entry:
+                                total_duration += entry['duration']
+                
+                if not playlist_items:
+                    raise Exception("Aucune vidéo valide trouvée dans la playlist")
+                
+                return VideoInfo(
+                    title=info.get('title', 'Unknown Playlist'),
+                    duration=f"{len(playlist_items)} vidéos ({format_duration(total_duration)})",
+                    thumbnail=info.get('thumbnail') or playlist_items[0].get('thumbnail'),
+                    isPlaylist=True,
+                    playlistItems=playlist_items,
+                    size=None  # La taille totale sera calculée plus tard
+                )
+            else:  # C'est une vidéo unique
+                video_info = await extract_video_info(url)
+                if not video_info:
+                    raise Exception("Impossible d'extraire les informations de la vidéo")
+                
+                return VideoInfo(
+                    title=video_info['title'],
+                    duration=video_info['duration'],
+                    thumbnail=video_info['thumbnail'],
+                    size=video_info['size'],
+                    isPlaylist=False,
+                    playlistItems=[video_info]  # On inclut quand même la vidéo dans la liste
+                )
     except Exception as e:
         print(f"Erreur dans get_video_info: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -592,3 +627,77 @@ async def cleanup_batch(batch_id: str):
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/create-session")
+async def create_session(url: str, format: str = "audio", quality: str = "highest", fileFormat: str = "mp3"):
+    try:
+        # Créer un ID de session unique
+        session_id = str(uuid.uuid4())
+        
+        # Récupérer les informations de la vidéo/playlist
+        video_info = await get_video_info(url)
+        
+        # Mettre à jour les informations avec l'ID de session
+        video_info.session_id = session_id
+        for item in video_info.playlistItems:
+            item['session_id'] = session_id
+            item['format'] = format
+            item['quality'] = quality
+            item['fileFormat'] = fileFormat
+        
+        # Créer et stocker la session
+        session = DownloadSession(
+            session_id=session_id,
+            created_at=time.time(),
+            videos=[video_info],
+            status="pending"
+        )
+        download_sessions[session_id] = session
+        
+        return {
+            "session_id": session_id,
+            "video_info": video_info
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/session/{session_id}")
+async def get_session(session_id: str):
+    if session_id not in download_sessions:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+    
+    session = download_sessions[session_id]
+    return session
+
+@app.post("/start-session/{session_id}")
+async def start_session(session_id: str, background_tasks: BackgroundTasks):
+    if session_id not in download_sessions:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+    
+    session = download_sessions[session_id]
+    if session.status == "downloading":
+        return {"message": "La session est déjà en cours de téléchargement"}
+    
+    # Mettre à jour le statut
+    session.status = "downloading"
+    
+    # Créer la requête de batch download
+    videos = []
+    for video_info in session.videos:
+        for item in video_info.playlistItems:
+            videos.append(DownloadRequest(
+                url=item['url'],
+                format=item['format'],
+                quality=item['quality'],
+                fileFormat=item['fileFormat']
+            ))
+    
+    # Démarrer le téléchargement en arrière-plan
+    batch_request = BatchDownloadRequest(videos=videos)
+    response = await start_batch_download(batch_request, background_tasks)
+    
+    return {
+        "session_id": session_id,
+        "batch_id": response['batch_id']
+    }

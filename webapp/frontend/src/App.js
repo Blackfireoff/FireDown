@@ -12,8 +12,6 @@ const VIDEO_FORMATS = [
   { value: 'mkv', label: 'MKV' },
   { value: 'avi', label: 'AVI' },
   { value: 'webm', label: 'WebM' },
-  { value: 'mov', label: 'MOV' },
-  { value: 'flv', label: 'FLV' },
 ];
 
 const AUDIO_FORMATS = [
@@ -21,8 +19,6 @@ const AUDIO_FORMATS = [
   { value: 'm4a', label: 'M4A' },
   { value: 'wav', label: 'WAV' },
   { value: 'aac', label: 'AAC' },
-  { value: 'ogg', label: 'OGG' },
-  { value: 'opus', label: 'OPUS' },
   { value: 'flac', label: 'FLAC' },
 ];
 
@@ -41,6 +37,8 @@ function App() {
     total: 0,
     currentItem: null
   });
+  const [sessionId, setSessionId] = useState(null);
+  const [batchId, setBatchId] = useState(null);
 
   const handleDownloadProgress = async (downloadId) => {
     let isComplete = false;
@@ -163,53 +161,54 @@ function App() {
   const handleAddToQueue = async () => {
     if (!url) return;
     
-    const cleanedUrl = cleanYoutubeUrl(url);
-    const videoInfo = await fetchVideoInfo(cleanedUrl);
-    if (!videoInfo) return;
-
-    if (videoInfo.isPlaylist) {
-        try {
-            // Appeler la nouvelle route pour obtenir toutes les vidéos de la playlist
-            const response = await axios.post(`http://localhost:8000/add-playlist?url=${encodeURIComponent(cleanedUrl)}`, {
-                format,
-                quality,
-                fileFormat
-            });
-
-            // Ajouter chaque vidéo à la file d'attente
-            const newItems = response.data.videos.map(video => ({
-                id: Date.now() + Math.random(),  // Générer un ID unique
-                url: video.url,
-                format,
-                quality,
-                fileFormat,
-                title: video.title,
-                thumbnail: videoInfo.thumbnail,
-                duration: "En attente..."
-            }));
-
-            setQueue(prev => [...prev, ...newItems]);
-            setUrl('');
-
-        } catch (error) {
-            console.error('Error adding playlist:', error);
-            setError(error.response?.data?.detail || 'Erreur lors de l\'ajout de la playlist');
-        }
-    } else {
+    try {
+      setError('');
+      const cleanedUrl = cleanYoutubeUrl(url);
+      
+      // Créer une nouvelle session
+      const sessionResponse = await axios.post(`http://localhost:8000/create-session?url=${encodeURIComponent(cleanedUrl)}&format=${format}&quality=${quality}&fileFormat=${fileFormat}`);
+      
+      const { session_id, video_info } = sessionResponse.data;
+      setSessionId(session_id);
+      
+      // Mettre à jour la file d'attente avec les informations de la vidéo/playlist
+      if (video_info.isPlaylist) {
+        const newItems = video_info.playlistItems.map(item => ({
+          id: item.id || `${Date.now()}-${Math.random()}`,
+          url: item.url || '',
+          format,
+          quality,
+          fileFormat,
+          title: item.title || 'Sans titre',
+          thumbnail: item.thumbnail || '',
+          duration: item.duration || '00:00',
+          size: item.size || 'Inconnu',
+          status: 'pending'
+        }));
+        
+        setQueue(prev => [...prev, ...newItems]);
+      } else {
         const queueItem = {
-            id: Date.now(),
-            url: cleanedUrl,
-            format,
-            quality,
-            fileFormat,
-            thumbnail: videoInfo.thumbnail,
-            title: videoInfo.title,
-            duration: videoInfo.duration,
-            size: videoInfo.size
+          id: video_info.id || `${Date.now()}-${Math.random()}`,
+          url: cleanedUrl,
+          format,
+          quality,
+          fileFormat,
+          thumbnail: video_info.thumbnail || '',
+          title: video_info.title || 'Sans titre',
+          duration: video_info.duration || '00:00',
+          size: video_info.size || 'Inconnu',
+          status: 'pending'
         };
-
+        
         setQueue(prev => [...prev, queueItem]);
-        setUrl('');
+      }
+      
+      setUrl('');
+      
+    } catch (error) {
+      console.error('Error adding to queue:', error);
+      setError(error.response?.data?.detail || 'Erreur lors de l\'ajout à la file d\'attente');
     }
   };
 
@@ -307,122 +306,107 @@ function App() {
   };
 
   const handleDownloadAll = async () => {
-    if (queue.length === 0) return;
+    if (queue.length === 0 || !sessionId) return;
     
     try {
-        setDownloading(true);
-        setProgress(0);
-        setError('');
-        setBatchProgress({
-            current: 0,
-            total: queue.length,
-            currentItem: null
-        });
-        
-        console.log('Starting batch download for', queue.length, 'items');
-
-        // Si un seul élément dans la queue, on utilise le téléchargement simple
-        if (queue.length === 1) {
-            await handleDownloadSingle(queue[0]);
-            setQueue([]);
-            return;
-        }
-
-        // Démarrer le téléchargement par lot
-        const response = await axios.post('http://localhost:8000/start-batch-download', {
-            videos: queue.map(item => ({
-                url: cleanYoutubeUrl(item.url),
-                format: item.format,
-                quality: item.quality,
-                fileFormat: item.fileFormat
-            }))
-        });
-
-        console.log('Batch download initiated:', response.data);
-        const batchId = response.data.batch_id;
-
-        // Vérifier le statut toutes les 5 secondes
-        const checkStatus = async () => {
-            try {
-                const statusResponse = await axios.get(`http://localhost:8000/check-batch-status/${batchId}`);
-                const status = statusResponse.data;
-                
-                setProgress(status.progress);
-                setBatchProgress(prev => ({
-                    ...prev,
-                    current: status.current_index,
-                    total: status.total_files,
-                    currentItem: {
-                        title: status.current_video,
-                        progress: status.progress
-                    }
-                }));
-
-                if (status.error) {
-                    setError(status.error);
-                }
-
-                if (status.is_ready && status.filename) {
-                    // Télécharger le fichier ZIP
-                    console.log('ZIP file is ready, downloading:', status.filename);
-                    const downloadResponse = await axios.get(
-                        `http://localhost:8000/download-batch/${batchId}`,
-                        { responseType: 'blob' }
-                    );
-
-                    // Créer le lien de téléchargement
-                    const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
-                    const url = window.URL.createObjectURL(blob);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = status.filename;
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    window.URL.revokeObjectURL(url);
-
-                    // Nettoyer les fichiers sur le serveur
-                    await axios.post(`http://localhost:8000/cleanup-batch/${batchId}`);
-                    
-                    setQueue([]);
-                    setDownloading(false);
-                    setProgress(0);
-                    setBatchProgress({
-                        current: 0,
-                        total: 0,
-                        currentItem: null
-                    });
-                    return;
-                }
-
-                // Continuer à vérifier toutes les 5 secondes
-                setTimeout(checkStatus, 5000);
-            } catch (error) {
-                console.error('Error checking batch status:', error);
-                setError(error.response?.data?.detail || 'Une erreur est survenue');
-                setDownloading(false);
-                setBatchProgress({
-                    current: 0,
-                    total: 0,
-                    currentItem: null
-                });
+      setDownloading(true);
+      setProgress(0);
+      setError('');
+      setBatchProgress({
+        current: 0,
+        total: queue.length,
+        currentItem: null
+      });
+      
+      // Démarrer le téléchargement de la session
+      const response = await axios.post(`http://localhost:8000/start-session/${sessionId}`);
+      const { batch_id } = response.data;
+      setBatchId(batch_id);
+      
+      // Vérifier le statut toutes les 5 secondes
+      const checkStatus = async () => {
+        try {
+          const statusResponse = await axios.get(`http://localhost:8000/check-batch-status/${batch_id}`);
+          const status = statusResponse.data;
+          
+          setProgress(status.progress);
+          setBatchProgress(prev => ({
+            ...prev,
+            current: status.current_index,
+            total: status.total_files,
+            currentItem: {
+              title: status.current_video,
+              progress: status.progress
             }
-        };
-
-        // Démarrer la vérification du statut
-        checkStatus();
-        
-    } catch (error) {
-        console.error('Batch download error:', error);
-        setError(error.response?.data?.detail || 'Erreur lors du téléchargement groupé');
-        setDownloading(false);
-        setBatchProgress({
+          }));
+          
+          if (status.error) {
+            setError(status.error);
+          }
+          
+          if (status.is_ready && status.filename) {
+            // Télécharger le fichier ZIP
+            const downloadResponse = await axios.get(
+              `http://localhost:8000/download-batch/${batch_id}`,
+              { responseType: 'blob' }
+            );
+            
+            // Créer le lien de téléchargement
+            const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = status.filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            
+            // Nettoyer
+            await axios.post(`http://localhost:8000/cleanup-batch/${batch_id}`);
+            
+            setQueue([]);
+            setDownloading(false);
+            setProgress(0);
+            setBatchProgress({
+              current: 0,
+              total: 0,
+              currentItem: null
+            });
+            setSessionId(null);
+            setBatchId(null);
+            return;
+          }
+          
+          // Continuer à vérifier
+          setTimeout(checkStatus, 5000);
+          
+        } catch (error) {
+          console.error('Error checking batch status:', error);
+          setError(error.response?.data?.detail || 'Une erreur est survenue');
+          setDownloading(false);
+          setBatchProgress({
             current: 0,
             total: 0,
             currentItem: null
-        });
+          });
+        }
+      };
+      
+      // Démarrer la vérification
+      checkStatus();
+      
+    } catch (error) {
+      console.error('Batch download error:', error);
+      setError(error.response?.data?.detail || 'Erreur lors du téléchargement groupé');
+      setDownloading(false);
+      setBatchProgress({
+        current: 0,
+        total: 0,
+        currentItem: null
+      });
     }
-};
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-600 to-blue-500 py-12 px-4 sm:px-6 lg:px-8">
