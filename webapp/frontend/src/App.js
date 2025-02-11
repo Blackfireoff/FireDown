@@ -39,6 +39,7 @@ function App() {
   });
   const [sessionId, setSessionId] = useState(null);
   const [batchId, setBatchId] = useState(null);
+  const [isAddingToQueue, setIsAddingToQueue] = useState(false);
 
   const handleDownloadProgress = async (downloadId) => {
     let isComplete = false;
@@ -162,11 +163,14 @@ function App() {
     if (!url) return;
     
     try {
+      setIsAddingToQueue(true);
       setError('');
       const cleanedUrl = cleanYoutubeUrl(url);
       
-      // Créer une nouvelle session
-      const sessionResponse = await axios.post(`http://localhost:8000/create-session?url=${encodeURIComponent(cleanedUrl)}&format=${format}&quality=${quality}&fileFormat=${fileFormat}`);
+      // Créer une nouvelle session avec les paramètres dans l'URL
+      const sessionResponse = await axios.post(
+        `http://localhost:8000/create-session?url=${encodeURIComponent(cleanedUrl)}&format=${format}&quality=${quality}&fileFormat=${fileFormat}`
+      );
       
       const { session_id, video_info } = sessionResponse.data;
       setSessionId(session_id);
@@ -208,7 +212,20 @@ function App() {
       
     } catch (error) {
       console.error('Error adding to queue:', error);
-      setError(error.response?.data?.detail || 'Erreur lors de l\'ajout à la file d\'attente');
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        if (Array.isArray(detail)) {
+          setError(detail.map(err => err.msg).join(', '));
+        } else {
+          setError(detail);
+        }
+      } else if (error.message) {
+        setError(error.message);
+      } else {
+        setError('Erreur lors de l\'ajout à la file d\'attente');
+      }
+    } finally {
+      setIsAddingToQueue(false);
     }
   };
 
@@ -318,87 +335,127 @@ function App() {
         currentItem: null
       });
       
-      // Démarrer le téléchargement de la session
-      const response = await axios.post(`http://localhost:8000/start-session/${sessionId}`);
-      const { batch_id } = response.data;
-      setBatchId(batch_id);
+      let completedDownloads = 0;
       
-      // Vérifier le statut toutes les 5 secondes
-      const checkStatus = async () => {
+      // Démarrer les téléchargements individuels
+      const downloadPromises = queue.map(async (item, index) => {
         try {
-          const statusResponse = await axios.get(`http://localhost:8000/check-batch-status/${batch_id}`);
-          const status = statusResponse.data;
+          // Démarrer le téléchargement avec le session_id
+          const response = await axios.post('http://localhost:8000/start-download', {
+            url: item.url,
+            format: item.format,
+            quality: item.quality,
+            fileFormat: item.fileFormat,
+            session_id: sessionId  // Ajouter le session_id à la requête
+          });
           
-          setProgress(status.progress);
-          setBatchProgress(prev => ({
-            ...prev,
-            current: status.current_index,
-            total: status.total_files,
-            currentItem: {
-              title: status.current_video,
-              progress: status.progress
+          const downloadId = response.data.download_id;
+          
+          // Incrémenter le compteur de téléchargements démarrés
+          completedDownloads++;
+          const globalProgress = (completedDownloads / queue.length) * 100;
+          setProgress(globalProgress);
+          
+          // Mettre à jour l'état de l'élément dans la file d'attente
+          setQueue(prev => prev.map(qItem => 
+            qItem.id === item.id 
+              ? { ...qItem, status: 'downloading', downloadId }
+              : qItem
+          ));
+          
+          // Vérifier le statut jusqu'à ce que le téléchargement soit terminé
+          while (true) {
+            const statusResponse = await axios.get(`http://localhost:8000/check-status/${downloadId}`);
+            const status = statusResponse.data;
+            
+            // Mettre à jour la progression de l'élément
+            setQueue(prev => prev.map(qItem =>
+              qItem.id === item.id
+                ? { ...qItem, progress: status.progress }
+                : qItem
+            ));
+            
+            setBatchProgress(prev => ({
+              ...prev,
+              current: completedDownloads,
+              total: queue.length,
+              currentItem: {
+                title: item.title,
+                progress: status.progress
+              }
+            }));
+            
+            if (status.error) {
+              setQueue(prev => prev.map(qItem =>
+                qItem.id === item.id
+                  ? { ...qItem, status: 'error', error: status.error }
+                  : qItem
+              ));
+              throw new Error(status.error);
             }
-          }));
-          
-          if (status.error) {
-            setError(status.error);
+            
+            if (status.is_ready && status.filename) {
+              setQueue(prev => prev.map(qItem =>
+                qItem.id === item.id
+                  ? { ...qItem, status: 'completed', filename: status.filename }
+                  : qItem
+              ));
+              break;
+            }
+            
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
-          
-          if (status.is_ready && status.filename) {
-            // Télécharger le fichier ZIP
-            const downloadResponse = await axios.get(
-              `http://localhost:8000/download-batch/${batch_id}`,
-              { responseType: 'blob' }
-            );
-            
-            // Créer le lien de téléchargement
-            const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
-            const url = window.URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = status.filename;
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            window.URL.revokeObjectURL(url);
-            
-            // Nettoyer
-            await axios.post(`http://localhost:8000/cleanup-batch/${batch_id}`);
-            
-            setQueue([]);
-            setDownloading(false);
-            setProgress(0);
-            setBatchProgress({
-              current: 0,
-              total: 0,
-              currentItem: null
-            });
-            setSessionId(null);
-            setBatchId(null);
-            return;
-          }
-          
-          // Continuer à vérifier
-          setTimeout(checkStatus, 5000);
           
         } catch (error) {
-          console.error('Error checking batch status:', error);
-          setError(error.response?.data?.detail || 'Une erreur est survenue');
-          setDownloading(false);
-          setBatchProgress({
-            current: 0,
-            total: 0,
-            currentItem: null
-          });
+          console.error(`Error downloading ${item.title}:`, error);
+          setQueue(prev => prev.map(qItem =>
+            qItem.id === item.id
+              ? { ...qItem, status: 'error', error: error.message }
+              : qItem
+          ));
+          throw error;
         }
-      };
+      });
       
-      // Démarrer la vérification
-      checkStatus();
+      // Attendre que tous les téléchargements soient terminés
+      await Promise.all(downloadPromises);
+      
+      // Créer le ZIP avec tous les fichiers téléchargés
+      const completedFiles = queue.filter(item => item.status === 'completed');
+      if (completedFiles.length > 0) {
+        try {
+          const downloadResponse = await axios.get(
+            `http://localhost:8000/session/${sessionId}/download`,
+            { responseType: 'blob' }
+          );
+          
+          // Créer le lien de téléchargement
+          const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `download_${sessionId}.zip`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          window.URL.revokeObjectURL(url);
+        } catch (error) {
+          console.error('Error downloading ZIP:', error);
+          setError('Erreur lors du téléchargement du fichier ZIP');
+        }
+      }
+      
+      setDownloading(false);
+      setProgress(0);
+      setBatchProgress({
+        current: 0,
+        total: 0,
+        currentItem: null
+      });
       
     } catch (error) {
       console.error('Batch download error:', error);
-      setError(error.response?.data?.detail || 'Erreur lors du téléchargement groupé');
+      setError(error.message || 'Une erreur est survenue lors du téléchargement');
       setDownloading(false);
       setBatchProgress({
         current: 0,
@@ -432,6 +489,7 @@ function App() {
                 downloading={downloading}
                 onAddToQueue={handleAddToQueue}
                 onSingleDownload={handleDownloadSingle}
+                isAddingToQueue={isAddingToQueue}
               />
 
               <DownloadProgress

@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { FaPlus, FaDownload } from 'react-icons/fa';
+import { FaPlus, FaDownload, FaSpinner } from 'react-icons/fa';
 import { VIDEO_FORMATS, AUDIO_FORMATS } from './constants';
 
 const DownloadForm = ({ 
@@ -14,7 +14,8 @@ const DownloadForm = ({
   setFileFormat, 
   downloading,
   onAddToQueue,
-  onSingleDownload 
+  onSingleDownload,
+  isAddingToQueue = false
 }) => {
   const handleFormatChange = (e) => {
     const newFormat = e.target.value;
@@ -33,6 +34,7 @@ const DownloadForm = ({
           className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
           placeholder="https://youtube.com/..."
           required
+          disabled={isAddingToQueue}
         />
       </div>
 
@@ -43,6 +45,7 @@ const DownloadForm = ({
             value={format}
             onChange={handleFormatChange}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+            disabled={isAddingToQueue}
           >
             <option value="video">Vidéo</option>
             <option value="audio">Audio</option>
@@ -56,6 +59,7 @@ const DownloadForm = ({
               value={quality}
               onChange={(e) => setQuality(e.target.value)}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+              disabled={isAddingToQueue}
             >
               <option value="highest">Meilleure</option>
               <option value="medium">Moyenne</option>
@@ -70,6 +74,7 @@ const DownloadForm = ({
             value={fileFormat}
             onChange={(e) => setFileFormat(e.target.value)}
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+            disabled={isAddingToQueue}
           >
             {(format === 'video' ? VIDEO_FORMATS : AUDIO_FORMATS).map(fmt => (
               <option key={fmt.value} value={fmt.value}>
@@ -82,23 +87,39 @@ const DownloadForm = ({
 
       <div className="flex gap-4">
         <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          whileHover={{ scale: isAddingToQueue ? 1 : 1.02 }}
+          whileTap={{ scale: isAddingToQueue ? 1 : 0.98 }}
           type="submit"
-          className="flex-1 flex items-center justify-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-purple-600 hover:bg-purple-700"
+          disabled={isAddingToQueue || !url}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+            isAddingToQueue ? 'bg-purple-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'
+          }`}
         >
-          <FaPlus /> Ajouter à la liste
+          {isAddingToQueue ? (
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            >
+              <FaSpinner className="w-4 h-4" />
+            </motion.div>
+          ) : (
+            <FaPlus />
+          )}
+          {isAddingToQueue ? 'Ajout en cours...' : 'Ajouter à la liste'}
         </motion.button>
         
         <motion.button
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
+          whileHover={{ scale: downloading ? 1 : 1.02 }}
+          whileTap={{ scale: downloading ? 1 : 0.98 }}
           type="button"
           onClick={() => onSingleDownload({ url, format, quality, fileFormat })}
-          disabled={downloading || !url}
-          className="flex-1 flex items-center justify-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+          disabled={downloading || !url || isAddingToQueue}
+          className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+            downloading || isAddingToQueue ? 'bg-green-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+          }`}
         >
-          <FaDownload /> Téléchargement unique
+          <FaDownload />
+          Téléchargement unique
         </motion.button>
       </div>
     </form>

@@ -45,6 +45,7 @@ class DownloadStatus:
         self.is_ready = False
         self.error = None
         self.download_folder = ""
+        self.session_id = None
 
 class VideoInfo(BaseModel):
     title: str
@@ -139,15 +140,21 @@ def format_size(size: int) -> str:
 # ---------------------------
 # Fonction de téléchargement
 # ---------------------------
-async def download_video(url: str, format_type: str, quality: str, file_format: str, download_id: str):
+async def download_video(url: str, format_type: str, quality: str, file_format: str, download_id: str, session_id: str = None):
     # Créer et stocker le status avant tout
     status = DownloadStatus()
     download_statuses[download_id] = status
+    status.session_id = session_id
     
     try:
         # Configurer le dossier de téléchargement
-        download_folder = status.download_folder if status.download_folder else os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
+        if session_id:
+            download_folder = os.path.join(DOWNLOAD_DIR, f"session_{session_id}")
+        else:
+            download_folder = os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
+        
         os.makedirs(download_folder, exist_ok=True)
+        status.download_folder = download_folder
 
         ffmpeg_location = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "bin")
         
@@ -193,40 +200,31 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
             # Télécharger la vidéo
             info = ydl.extract_info(url, download=True)
             
-            if 'entries' in info:  # Playlist
-                zip_filename = f"playlist_{download_id}.zip"
-                zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
-                with zipfile.ZipFile(zip_path, 'w') as zipf:
-                    for root, dirs, files in os.walk(download_folder):
-                        for file in files:
-                            file_path = os.path.join(root, file)
-                            arcname = os.path.relpath(file_path, download_folder)
-                            zipf.write(file_path, arcname)
-                status.filename = zip_filename
-            else:
-                files = os.listdir(download_folder)
-                if not files:
-                    raise Exception("Le fichier n'a pas pu être téléchargé")
-                
-                downloaded_file = os.path.join(download_folder, files[0])
-                if format_type == "video" and file_format not in ['mp4', 'webm']:
-                    final_filename = f"{os.path.splitext(os.path.basename(downloaded_file))[0]}.{file_format}"
-                    final_path = os.path.join(download_folder, final_filename)
-                    try:
-                        import subprocess
-                        cmd = [
-                            os.path.join(ffmpeg_location, 'ffmpeg'),
-                            '-i', downloaded_file,
-                            '-c:v', 'libx264' if file_format == 'avi' else 'copy',
-                            '-c:a', 'aac',
-                            final_path
-                        ]
-                        subprocess.run(cmd, check=True)
-                        status.filename = final_filename
-                    except subprocess.CalledProcessError as e:
-                        status.filename = os.path.basename(downloaded_file)
-                else:
-                    status.filename = os.path.basename(downloaded_file)
+            files = os.listdir(download_folder)
+            if not files:
+                raise Exception("Le fichier n'a pas pu être téléchargé")
+            
+            # Trouver le fichier le plus récent dans le dossier (celui qu'on vient de télécharger)
+            latest_file = max([os.path.join(download_folder, f) for f in files], key=os.path.getctime)
+            status.filename = os.path.basename(latest_file)
+
+            if format_type == "video" and file_format not in ['mp4', 'webm']:
+                final_filename = f"{os.path.splitext(status.filename)[0]}.{file_format}"
+                final_path = os.path.join(download_folder, final_filename)
+                try:
+                    import subprocess
+                    cmd = [
+                        os.path.join(ffmpeg_location, 'ffmpeg'),
+                        '-i', latest_file,
+                        '-c:v', 'libx264' if file_format == 'avi' else 'copy',
+                        '-c:a', 'aac',
+                        final_path
+                    ]
+                    subprocess.run(cmd, check=True)
+                    os.remove(latest_file)  # Supprimer le fichier original
+                    status.filename = final_filename
+                except subprocess.CalledProcessError as e:
+                    print(f"Erreur lors de la conversion: {e}")
 
             status.progress = 100
             status.is_ready = True
@@ -682,22 +680,95 @@ async def start_session(session_id: str, background_tasks: BackgroundTasks):
     # Mettre à jour le statut
     session.status = "downloading"
     
-    # Créer la requête de batch download
-    videos = []
-    for video_info in session.videos:
-        for item in video_info.playlistItems:
-            videos.append(DownloadRequest(
-                url=item['url'],
-                format=item['format'],
-                quality=item['quality'],
-                fileFormat=item['fileFormat']
-            ))
+    # Créer le dossier de la session
+    session_folder = os.path.join(DOWNLOAD_DIR, f"session_{session_id}")
+    os.makedirs(session_folder, exist_ok=True)
     
-    # Démarrer le téléchargement en arrière-plan
-    batch_request = BatchDownloadRequest(videos=videos)
-    response = await start_batch_download(batch_request, background_tasks)
+    # Démarrer le téléchargement de chaque vidéo
+    for video in session.videos:
+        for item in video.playlistItems:
+            download_id = str(uuid.uuid4())
+            background_tasks.add_task(
+                download_video,
+                item['url'],
+                item['format'],
+                item['quality'],
+                item['fileFormat'],
+                download_id,
+                session_id
+            )
     
     return {
         "session_id": session_id,
-        "batch_id": response['batch_id']
+        "message": "Téléchargements démarrés"
+    }
+
+@app.get("/session-status/{session_id}")
+async def get_session_status(session_id: str):
+    if session_id not in download_sessions:
+        raise HTTPException(status_code=404, detail="Session non trouvée")
+    
+    session = download_sessions[session_id]
+    session_folder = os.path.join(DOWNLOAD_DIR, f"session_{session_id}")
+    
+    # Vérifier si tous les téléchargements sont terminés
+    all_downloads = [status for status in download_statuses.values() if status.session_id == session_id]
+    total_downloads = len(all_downloads)
+    completed_downloads = len([s for s in all_downloads if s.is_ready])
+    failed_downloads = len([s for s in all_downloads if s.error])
+    
+    if total_downloads > 0:
+        total_progress = sum(s.progress for s in all_downloads) / total_downloads
+    else:
+        total_progress = 0
+    
+    # Si tous les téléchargements sont terminés, créer le ZIP
+    if completed_downloads + failed_downloads == total_downloads and total_downloads > 0:
+        try:
+            zip_filename = f"session_{session_id}.zip"
+            zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
+            
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for root, dirs, files in os.walk(session_folder):
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, session_folder)
+                        zipf.write(file_path, arcname)
+            
+            session.status = "completed"
+            return {
+                "status": "completed",
+                "progress": 100,
+                "completed": completed_downloads,
+                "failed": failed_downloads,
+                "total": total_downloads,
+                "filename": zip_filename
+            }
+        except Exception as e:
+            session.status = "error"
+            return {
+                "status": "error",
+                "error": str(e),
+                "progress": total_progress,
+                "completed": completed_downloads,
+                "failed": failed_downloads,
+                "total": total_downloads
+            }
+    
+    # Sinon, renvoyer la progression
+    return {
+        "status": "downloading",
+        "progress": total_progress,
+        "completed": completed_downloads,
+        "failed": failed_downloads,
+        "total": total_downloads,
+        "current_downloads": [
+            {
+                "title": status.title,
+                "progress": status.progress,
+                "error": status.error
+            }
+            for status in all_downloads
+            if not status.is_ready and not status.error
+        ]
     }
