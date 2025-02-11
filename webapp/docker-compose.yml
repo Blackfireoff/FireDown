@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: firedown-backend
+    restart: unless-stopped
+    volumes:
+      - downloads:/app/downloads
+    networks:
+      - firedown-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: firedown-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - firedown-network
+
+volumes:
+  downloads:
+    name: firedown-downloads
+
+networks:
+  firedown-network:
+    name: firedown-network
+    driver: bridge 
