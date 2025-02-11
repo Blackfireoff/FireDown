@@ -10,6 +10,7 @@ from typing import Optional
 import asyncio
 import uuid
 import time
+from starlette.background import BackgroundTask
 
 app = FastAPI()
 
@@ -27,27 +28,41 @@ DOWNLOAD_DIR = "downloads"
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
+# ---------------------------
+# Modèles de données
+# ---------------------------
 class DownloadRequest(BaseModel):
     url: str
     format: str
     quality: str
     fileFormat: str
 
-class DownloadProgress:
+class DownloadStatus:
     def __init__(self):
         self.progress = 0
         self.title = ""
         self.filename = ""
-        self.is_playlist = False
-        self.playlist_items = []
+        self.is_ready = False
+        self.error = None
 
-current_downloads = {}
+class VideoInfo(BaseModel):
+    title: str
+    duration: str
+    thumbnail: str
+    size: Optional[str] = None
+    isPlaylist: bool = False
+    playlistItems: list = []
 
+# Stockage des statuts de téléchargement
+download_statuses = {}
+
+# ---------------------------
+# Fonctions utilitaires
+# ---------------------------
 def get_format_selection(format_type: str, quality: str, file_format: str) -> str:
     if format_type == "audio":
-        return "bestaudio/best"  # On laisse le post-processeur gérer la conversion audio
+        return "bestaudio/best"
     
-    # Video format selection
     quality_filter = ""
     if quality == "medium":
         quality_filter = "[height<=720]"
@@ -57,103 +72,86 @@ def get_format_selection(format_type: str, quality: str, file_format: str) -> st
     if file_format in ['mp4', 'webm']:
         return f"bestvideo[ext={file_format}]{quality_filter}+bestaudio[ext={file_format}]/best[ext={file_format}]{quality_filter}/best"
     else:
-        # Pour les autres formats, on prend le meilleur format disponible et on convertit après
         return f"bestvideo{quality_filter}+bestaudio/best{quality_filter}/best"
 
 def progress_hook(d, download_id):
-    if d['status'] == 'downloading':
-        if 'total_bytes' in d and 'downloaded_bytes' in d:
-            progress = (d['downloaded_bytes'] / d['total_bytes']) * 100
-        elif 'total_bytes_estimate' in d and 'downloaded_bytes' in d:
-            progress = (d['downloaded_bytes'] / d['total_bytes_estimate']) * 100
-        else:
-            progress = 0
-            
-        if download_id in current_downloads:
-            current_downloads[download_id].progress = progress
-    elif d['status'] == 'finished':
-        if download_id in current_downloads:
-            # Ne pas définir le nom de fichier ici, attendre la fin de la conversion
-            current_downloads[download_id].progress = 99  # On garde 1% pour la conversion
+    if download_id in download_statuses:
+        status = download_statuses[download_id]
+        if d['status'] == 'downloading':
+            if 'total_bytes' in d and 'downloaded_bytes' in d:
+                status.progress = (d['downloaded_bytes'] / d['total_bytes']) * 100
+            elif 'total_bytes_estimate' in d and 'downloaded_bytes' in d:
+                status.progress = (d['downloaded_bytes'] / d['total_bytes_estimate']) * 100
+        elif d['status'] == 'finished':
+            status.progress = 99
 
-async def wait_for_file(file_path: str, timeout: int = 60):
-    """Attend que le fichier existe et ne soit plus en cours d'écriture."""
-    start_time = time.time()
-    while time.time() - start_time < timeout:
-        if os.path.exists(file_path):
-            try:
-                # Vérifie si le fichier est accessible et complet
-                with open(file_path, 'rb') as f:
-                    # Si on peut lire le fichier et qu'il a une taille > 0
-                    if os.path.getsize(file_path) > 0:
-                        return True
-            except (IOError, PermissionError):
-                pass
-        await asyncio.sleep(1)
-    return False
+def format_duration(duration: int) -> str:
+    hours = duration // 3600
+    minutes = (duration % 3600) // 60
+    seconds = duration % 60
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
 
-def get_final_filename(original_filename: str, format_type: str, file_format: str) -> str:
-    base_name = os.path.splitext(original_filename)[0]
-    return f"{base_name}.{file_format}"
+def format_size(size: int) -> str:
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
+# ---------------------------
+# Fonction de téléchargement
+# ---------------------------
 async def download_video(url: str, format_type: str, quality: str, file_format: str, download_id: str):
-    download_progress = DownloadProgress()
-    current_downloads[download_id] = download_progress
+    status = DownloadStatus()
+    download_statuses[download_id] = status
 
-    # Créer un dossier unique pour ce téléchargement
     download_folder = os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
     os.makedirs(download_folder, exist_ok=True)
 
-    # Chemin vers FFmpeg
     ffmpeg_location = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "bin")
     
-    ydl_opts = {
-        'format': get_format_selection(format_type, quality, file_format),
-        'outtmpl': os.path.join(download_folder, f'%(title)s.%(ext)s'),
-        'progress_hooks': [lambda d: progress_hook(d, download_id)],
-        'no_check_certificates': True,
-        'nocheckcertificate': True,
-        'ignoreerrors': True,
-        'no_warnings': True,
-        'quiet': True,
-        'extract_flat': False,
-        'extractor_retries': 3,
-        'file_access_retries': 3,
-        'fragment_retries': 3,
-        'skip_download': False,
-        'rm_cachedir': True,
-        'ffmpeg_location': ffmpeg_location,
-        'retries': 10,
-    }
-
-    if format_type == "audio":
-        ydl_opts.update({
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': file_format,
-                'preferredquality': '192',
-            }],
-            'extractaudio': True,
-            'format': 'bestaudio/best',
-        })
-
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                info = ydl.extract_info(url, download=False)
-                if info is None:
-                    raise Exception("Impossible d'extraire les informations de la vidéo")
-            except Exception as e:
-                print(f"Erreur lors de l'extraction des informations : {str(e)}")
-                shutil.rmtree(download_folder)
-                raise HTTPException(status_code=500, detail=str(e))
+        ydl_opts = {
+            'format': get_format_selection(format_type, quality, file_format),
+            'outtmpl': os.path.join(download_folder, f'%(title)s.%(ext)s'),
+            'progress_hooks': [lambda d: progress_hook(d, download_id)],
+            'no_check_certificates': True,
+            'nocheckcertificate': True,
+            'ignoreerrors': True,
+            'no_warnings': True,
+            'quiet': True,
+            'extract_flat': False,
+            'extractor_retries': 3,
+            'file_access_retries': 3,
+            'fragment_retries': 3,
+            'skip_download': False,
+            'rm_cachedir': True,
+            'ffmpeg_location': ffmpeg_location,
+            'retries': 10,
+        }
 
+        if format_type == "audio":
+            ydl_opts.update({
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': file_format,
+                    'preferredquality': '192',
+                }],
+                'extractaudio': True,
+                'format': 'bestaudio/best',
+            })
+
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if info is None:
+                raise Exception("Impossible d'extraire les informations de la vidéo")
+            
+            status.title = info.get('title', '')
             info = ydl.extract_info(url, download=True)
             
-            if 'entries' in info:  # C'est une playlist
-                download_progress.is_playlist = True
-                
-                # Créer le fichier ZIP directement dans le dossier downloads
+            if 'entries' in info:  # Playlist
                 zip_filename = f"playlist_{download_id}.zip"
                 zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
                 with zipfile.ZipFile(zip_path, 'w') as zipf:
@@ -162,25 +160,16 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
                             file_path = os.path.join(root, file)
                             arcname = os.path.relpath(file_path, download_folder)
                             zipf.write(file_path, arcname)
-                
-                # Nettoyer le dossier temporaire
-                shutil.rmtree(download_folder)
-                download_progress.filename = zip_filename
+                status.filename = zip_filename
             else:
-                # Obtenir le nom de fichier préparé
                 files = os.listdir(download_folder)
                 if not files:
-                    raise HTTPException(status_code=500, detail="Le fichier n'a pas pu être téléchargé")
+                    raise Exception("Le fichier n'a pas pu être téléchargé")
                 
                 downloaded_file = os.path.join(download_folder, files[0])
-                base_name = os.path.splitext(downloaded_file)[0]
-
-                # Si c'est une vidéo et qu'on veut un format autre que mp4/webm
                 if format_type == "video" and file_format not in ['mp4', 'webm']:
-                    final_filename = f"{os.path.basename(base_name)}.{file_format}"
+                    final_filename = f"{os.path.splitext(os.path.basename(downloaded_file))[0]}.{file_format}"
                     final_path = os.path.join(DOWNLOAD_DIR, final_filename)
-                    
-                    # Convertir la vidéo avec FFmpeg
                     try:
                         import subprocess
                         cmd = [
@@ -192,8 +181,6 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
                         ]
                         subprocess.run(cmd, check=True)
                     except subprocess.CalledProcessError as e:
-                        print(f"Erreur FFmpeg: {e}")
-                        # Si la conversion échoue, on garde le fichier original
                         final_path = os.path.join(DOWNLOAD_DIR, os.path.basename(downloaded_file))
                         shutil.copy2(downloaded_file, final_path)
                         final_filename = os.path.basename(downloaded_file)
@@ -201,22 +188,24 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
                     final_filename = os.path.basename(downloaded_file)
                     final_path = os.path.join(DOWNLOAD_DIR, final_filename)
                     shutil.copy2(downloaded_file, final_path)
+                
+                status.filename = final_filename
 
-                # Nettoyer le dossier temporaire
-                shutil.rmtree(download_folder)
-                download_progress.filename = final_filename
+            shutil.rmtree(download_folder)
+            status.progress = 100
+            status.is_ready = True
 
-            download_progress.title = info.get('title', '')
-            download_progress.progress = 100
-            
     except Exception as e:
         if os.path.exists(download_folder):
             shutil.rmtree(download_folder)
-        print(f"Erreur lors du téléchargement : {str(e)}")
+        status.error = str(e)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/download")
-async def download(request: DownloadRequest, background_tasks: BackgroundTasks):
+# ---------------------------
+# Routes
+# ---------------------------
+@app.post("/start-download")
+async def start_download(request: DownloadRequest, background_tasks: BackgroundTasks):
     download_id = str(uuid.uuid4())
     try:
         background_tasks.add_task(
@@ -229,54 +218,121 @@ async def download(request: DownloadRequest, background_tasks: BackgroundTasks):
         )
         return {"download_id": download_id}
     except Exception as e:
-        print(f"Erreur lors de la requête de téléchargement : {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/download/{filename}")
-async def get_file(filename: str):
-    file_path = os.path.join(DOWNLOAD_DIR, filename)
-    if os.path.exists(file_path):
-        async def cleanup():
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-            except Exception as e:
-                print(f"Erreur lors de la suppression du fichier : {e}")
-        
-        return FileResponse(
-            file_path,
-            media_type='application/octet-stream',
-            filename=filename,
-            background=cleanup()
-        )
-    raise HTTPException(status_code=404, detail="File not found")
+@app.get("/check-status/{download_id}")
+async def check_status(download_id: str):
+    if download_id not in download_statuses:
+        raise HTTPException(status_code=404, detail="Téléchargement non trouvé")
+    
+    status = download_statuses[download_id]
+    response = {
+        "progress": status.progress,
+        "title": status.title,
+        "is_ready": status.is_ready
+    }
+    
+    if status.error:
+        response["error"] = status.error
+    if status.is_ready:
+        response["filename"] = status.filename
+    
+    return response
 
-@app.get("/status/{download_id}")
-async def get_status(download_id: str):
-    if download_id in current_downloads:
-        progress = current_downloads[download_id]
-        return {
-            "progress": progress.progress,
-            "title": progress.title,
-            "filename": progress.filename,
-            "is_playlist": progress.is_playlist
+@app.get("/download-file/{download_id}")
+async def download_file(download_id: str):
+    if download_id not in download_statuses:
+        raise HTTPException(status_code=404, detail="Téléchargement non trouvé")
+    
+    status = download_statuses[download_id]
+    if not status.is_ready:
+        raise HTTPException(status_code=400, detail="Le fichier n'est pas encore prêt")
+    
+    file_path = os.path.join(DOWNLOAD_DIR, status.filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    
+    return FileResponse(
+        file_path,
+        media_type='application/octet-stream',
+        filename=status.filename
+    )
+
+@app.post("/cleanup/{download_id}")
+async def cleanup(download_id: str):
+    if download_id not in download_statuses:
+        raise HTTPException(status_code=404, detail="Téléchargement non trouvé")
+    
+    status = download_statuses[download_id]
+    file_path = os.path.join(DOWNLOAD_DIR, status.filename)
+    
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        del download_statuses[download_id]
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/video-info")
+async def get_video_info(url: str):
+    try:
+        ydl_opts = {
+            'no_check_certificates': True,
+            'nocheckcertificate': True,
+            'quiet': True,
+            'extract_flat': 'in_playlist',
         }
-    raise HTTPException(status_code=404, detail="Download not found")
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if 'entries' in info:
+                playlist_items = []
+                for entry in info['entries']:
+                    if entry:
+                        playlist_items.append({
+                            'title': entry.get('title', 'Unknown'),
+                            'duration': format_duration(entry.get('duration', 0)),
+                            'thumbnail': entry.get('thumbnail', None)
+                        })
+                return VideoInfo(
+                    title=info.get('title', 'Unknown Playlist'),
+                    duration=f"{len(playlist_items)} videos",
+                    thumbnail=info.get('entries', [{}])[0].get('thumbnail', None),
+                    isPlaylist=True,
+                    playlistItems=playlist_items
+                )
+            else:
+                return VideoInfo(
+                    title=info.get('title', 'Unknown'),
+                    duration=format_duration(info.get('duration', 0)),
+                    thumbnail=info.get('thumbnail', None),
+                    size=format_size(info.get('filesize', 0)) if info.get('filesize') else None,
+                    isPlaylist=False
+                )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-# Nettoyage périodique des fichiers téléchargés
+# Nettoyage périodique
 @app.on_event("startup")
 async def startup_event():
     async def cleanup_downloads():
         while True:
-            await asyncio.sleep(3600)  # Nettoie toutes les heures
+            await asyncio.sleep(3600)  # Nettoyage toutes les heures
             try:
+                current_time = time.time()
+                # Nettoyage des fichiers
                 for filename in os.listdir(DOWNLOAD_DIR):
                     file_path = os.path.join(DOWNLOAD_DIR, filename)
                     if os.path.isfile(file_path):
-                        # Supprime les fichiers plus vieux qu'une heure
-                        if os.path.getmtime(file_path) < time.time() - 3600:
+                        if os.path.getmtime(file_path) < current_time - 3600:
                             os.remove(file_path)
+                
+                # Nettoyage des statuts
+                for download_id in list(download_statuses.keys()):
+                    status = download_statuses[download_id]
+                    if status.is_ready or status.error:
+                        del download_statuses[download_id]
             except Exception as e:
                 print(f"Erreur lors du nettoyage : {e}")
-
-    asyncio.create_task(cleanup_downloads()) 
+    
+    asyncio.create_task(cleanup_downloads())
