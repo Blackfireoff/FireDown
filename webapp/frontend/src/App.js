@@ -335,10 +335,13 @@ function App() {
         currentItem: null
       });
       
+      // Démarrer la session de téléchargement
+      await axios.post(`http://localhost:8000/start-session/${sessionId}`);
+      
       let completedDownloads = 0;
       
       // Démarrer les téléchargements individuels
-      const downloadPromises = queue.map(async (item, index) => {
+      for (const item of queue) {
         try {
           // Démarrer le téléchargement avec le session_id
           const response = await axios.post('http://localhost:8000/start-download', {
@@ -346,15 +349,10 @@ function App() {
             format: item.format,
             quality: item.quality,
             fileFormat: item.fileFormat,
-            session_id: sessionId  // Ajouter le session_id à la requête
+            session_id: sessionId
           });
           
           const downloadId = response.data.download_id;
-          
-          // Incrémenter le compteur de téléchargements démarrés
-          completedDownloads++;
-          const globalProgress = (completedDownloads / queue.length) * 100;
-          setProgress(globalProgress);
           
           // Mettre à jour l'état de l'élément dans la file d'attente
           setQueue(prev => prev.map(qItem => 
@@ -375,10 +373,12 @@ function App() {
                 : qItem
             ));
             
+            // Mettre à jour les deux barres de progression
+            const globalProgress = ((completedDownloads * 100) + status.progress) / queue.length;
+            setProgress(globalProgress);
             setBatchProgress(prev => ({
               ...prev,
               current: completedDownloads,
-              total: queue.length,
               currentItem: {
                 title: item.title,
                 progress: status.progress
@@ -395,11 +395,20 @@ function App() {
             }
             
             if (status.is_ready && status.filename) {
+              completedDownloads++;
               setQueue(prev => prev.map(qItem =>
                 qItem.id === item.id
                   ? { ...qItem, status: 'completed', filename: status.filename }
                   : qItem
               ));
+              
+              setBatchProgress(prev => ({
+                ...prev,
+                current: completedDownloads,
+                total: queue.length,
+                currentItem: null
+              }));
+              
               break;
             }
             
@@ -413,36 +422,30 @@ function App() {
               ? { ...qItem, status: 'error', error: error.message }
               : qItem
           ));
-          throw error;
         }
-      });
+      }
       
-      // Attendre que tous les téléchargements soient terminés
-      await Promise.all(downloadPromises);
-      
-      // Créer le ZIP avec tous les fichiers téléchargés
-      const completedFiles = queue.filter(item => item.status === 'completed');
-      if (completedFiles.length > 0) {
-        try {
-          const downloadResponse = await axios.get(
-            `http://localhost:8000/session/${sessionId}/download`,
-            { responseType: 'blob' }
-          );
-          
-          // Créer le lien de téléchargement
-          const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
-          const url = window.URL.createObjectURL(blob);
-          const link = document.createElement('a');
-          link.href = url;
-          link.download = `download_${sessionId}.zip`;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          window.URL.revokeObjectURL(url);
-        } catch (error) {
-          console.error('Error downloading ZIP:', error);
-          setError('Erreur lors du téléchargement du fichier ZIP');
-        }
+      // Une fois tous les téléchargements terminés, télécharger le ZIP
+      try {
+        const response = await axios.get(
+          `http://localhost:8000/session/${sessionId}/download`,
+          { responseType: 'blob' }
+        );
+        
+        // Créer le lien de téléchargement
+        const blob = new Blob([response.data], { type: 'application/zip' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `session_${sessionId}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        
+      } catch (error) {
+        console.error('Error downloading ZIP:', error);
+        setError('Erreur lors du téléchargement du fichier ZIP');
       }
       
       setDownloading(false);

@@ -772,3 +772,32 @@ async def get_session_status(session_id: str):
             if not status.is_ready and not status.error
         ]
     }
+
+@app.get("/session/{session_id}/download")
+async def download_session(session_id: str):
+    session_folder = os.path.join(DOWNLOAD_DIR, f"session_{session_id}")
+    if not os.path.exists(session_folder):
+        raise HTTPException(status_code=404, detail="Session folder not found")
+    
+    # Créer le ZIP avec tous les fichiers de la session
+    zip_filename = f"session_{session_id}.zip"
+    zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
+    
+    try:
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for root, dirs, files in os.walk(session_folder):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, session_folder)
+                    zipf.write(file_path, arcname)
+        
+        return FileResponse(
+            zip_path,
+            media_type='application/zip',
+            filename=zip_filename,
+            background=BackgroundTask(lambda: os.remove(zip_path) if os.path.exists(zip_path) else None)
+        )
+    except Exception as e:
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+        raise HTTPException(status_code=500, detail=str(e))
