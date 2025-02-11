@@ -7,6 +7,11 @@ import DownloadQueue from './components/DownloadQueue';
 import ErrorMessage from './components/ErrorMessage';
 import { cleanYoutubeUrl } from './components/constants';
 
+// Création d'une instance axios avec l'URL de base
+const api = axios.create({
+  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000'
+});
+
 const VIDEO_FORMATS = [
   { value: 'mp4', label: 'MP4' },
   { value: 'mkv', label: 'MKV' },
@@ -44,57 +49,39 @@ function App() {
   const handleDownloadProgress = async (downloadId) => {
     let isComplete = false;
     let retryCount = 0;
-    const maxRetries = 300; // 5 minutes maximum
+    const maxRetries = 300;
 
-    console.log('Starting progress tracking for download ID:', downloadId);
-    
     while (!isComplete && downloading && retryCount < maxRetries) {
       try {
-        console.log(`[Attempt ${retryCount + 1}] Checking status for download ID:`, downloadId);
-        const response = await axios.get(`http://localhost:8000/status/${downloadId}`, {
-          timeout: 5000 // 5 secondes timeout pour la requête de statut
-        });
+        const response = await api.get(`/status/${downloadId}`);
         
         if (!response.data) {
-          console.log('No data in status response');
           retryCount++;
           await new Promise(resolve => setTimeout(resolve, 1000));
           continue;
         }
 
         const status = response.data;
-        console.log('Status response:', status);
         
         if (status.filename) {
-          console.log('File is ready:', status.filename);
           setProgress(100);
           
           try {
-            console.log('Initiating file download...');
-            const fileUrl = `http://localhost:8000/download/${encodeURIComponent(status.filename)}`;
-            console.log('Download URL:', fileUrl);
-            
-            // Utiliser fetch pour télécharger le fichier
-            const fetchResponse = await fetch(fileUrl);
+            const fileUrl = `/download/${encodeURIComponent(status.filename)}`;
+            const fetchResponse = await fetch(api.defaults.baseURL + fileUrl);
             const blob = await fetchResponse.blob();
             
-            // Créer une URL pour le blob
             const blobUrl = window.URL.createObjectURL(blob);
-            
-            // Créer et configurer le lien de téléchargement
             const link = document.createElement('a');
             link.href = blobUrl;
-            link.download = status.filename; // Force le téléchargement avec le nom du fichier
+            link.download = status.filename;
             
-            // Ajouter le lien au document, cliquer dessus, puis le supprimer
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
             
-            // Libérer l'URL du blob
             window.URL.revokeObjectURL(blobUrl);
             
-            console.log('Download process complete');
             isComplete = true;
             setDownloading(false);
             setCurrentVideoInfo(null);
@@ -108,39 +95,30 @@ function App() {
           }
         } else {
           if (status.progress !== undefined) {
-            console.log('Download progress:', status.progress);
             setProgress(status.progress);
             if (status.title) {
-              console.log('Updating video title:', status.title);
               setCurrentVideoInfo(prev => ({
                 ...prev,
                 title: status.title
               }));
             }
-          } else {
-            console.log('No progress information in status');
           }
           retryCount++;
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       } catch (error) {
         console.error('Error checking download status:', error);
-        console.error('Error details:', error.response || error.message);
-        
         if (error.response?.status === 404) {
-          console.log('Download not found, might be completed or failed');
           setError('Le téléchargement a échoué ou n\'existe plus');
           isComplete = true;
         } else {
           retryCount++;
-          console.log('Retrying... Attempt:', retryCount);
         }
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
     }
 
     if (retryCount >= maxRetries) {
-      console.log('Maximum retry count reached');
       setError('Le téléchargement a pris trop de temps');
       setDownloading(false);
       setCurrentVideoInfo(null);
@@ -150,7 +128,7 @@ function App() {
   const fetchVideoInfo = async (videoUrl) => {
     try {
       const cleanedUrl = cleanYoutubeUrl(videoUrl);
-      const response = await axios.get(`http://localhost:8000/video-info?url=${encodeURIComponent(cleanedUrl)}`);
+      const response = await api.get(`/video-info?url=${encodeURIComponent(cleanedUrl)}`);
       return response.data;
     } catch (error) {
       console.error('Error fetching video info:', error);
@@ -167,15 +145,13 @@ function App() {
       setError('');
       const cleanedUrl = cleanYoutubeUrl(url);
       
-      // Créer une nouvelle session avec les paramètres dans l'URL
-      const sessionResponse = await axios.post(
-        `http://localhost:8000/create-session?url=${encodeURIComponent(cleanedUrl)}&format=${format}&quality=${quality}&fileFormat=${fileFormat}`
+      const sessionResponse = await api.post(
+        `/create-session?url=${encodeURIComponent(cleanedUrl)}&format=${format}&quality=${quality}&fileFormat=${fileFormat}`
       );
       
       const { session_id, video_info } = sessionResponse.data;
       setSessionId(session_id);
       
-      // Mettre à jour la file d'attente avec les informations de la vidéo/playlist
       if (video_info.isPlaylist) {
         const newItems = video_info.playlistItems.map(item => ({
           id: item.id || `${Date.now()}-${Math.random()}`,
@@ -245,7 +221,7 @@ function App() {
       console.log('Cleaned URL:', cleanedUrl);
       
       // Démarrer le téléchargement
-      const response = await axios.post('http://localhost:8000/start-download', {
+      const response = await api.post('start-download', {
         url: cleanedUrl,
         format: item.format,
         quality: item.quality,
@@ -258,7 +234,7 @@ function App() {
       // Vérifier le statut toutes les 5 secondes
       const checkStatus = async () => {
         try {
-          const statusResponse = await axios.get(`http://localhost:8000/check-status/${downloadId}`);
+          const statusResponse = await api.get(`check-status/${downloadId}`);
           const status = statusResponse.data;
           
           setProgress(status.progress);
@@ -276,8 +252,8 @@ function App() {
           if (status.is_ready && status.filename) {
             // Télécharger le fichier
             console.log('File is ready, downloading:', status.filename);
-            const downloadResponse = await axios.get(
-              `http://localhost:8000/download-file/${downloadId}`,
+            const downloadResponse = await api.get(
+              `download-file/${downloadId}`,
               { responseType: 'blob' }
             );
 
@@ -293,9 +269,9 @@ function App() {
             window.URL.revokeObjectURL(url);
 
             // Nettoyer le fichier sur le serveur
-            await axios.post(`http://localhost:8000/cleanup/${downloadId}`);
+            await api.post(`cleanup/${downloadId}`);
             // Nettoyer le dossier de téléchargement
-            await axios.post('http://localhost:8000/clean');
+            await api.post('clean');
             
             setDownloading(false);
             setCurrentVideoInfo(null);
@@ -343,7 +319,7 @@ function App() {
       for (const item of queue) {
         try {
           // Démarrer le téléchargement avec le session_id
-          const response = await axios.post('http://localhost:8000/start-download', {
+          const response = await api.post('start-download', {
             url: item.url,
             format: item.format,
             quality: item.quality,
@@ -362,7 +338,7 @@ function App() {
           
           // Vérifier le statut jusqu'à ce que le téléchargement soit terminé
           while (true) {
-            const statusResponse = await axios.get(`http://localhost:8000/check-status/${downloadId}`);
+            const statusResponse = await api.get(`check-status/${downloadId}`);
             const status = statusResponse.data;
             
             // Mettre à jour la progression de l'élément
@@ -428,8 +404,8 @@ function App() {
       try {
         if (queue.length === 1) {
           // Pour une seule vidéo, télécharger directement le fichier
-          const response = await axios.get(
-            `http://localhost:8000/session/${sessionId}/download-single`,
+          const response = await api.get(
+            `session/${sessionId}/download-single`,
             { responseType: 'blob' }
           );
           
@@ -447,8 +423,8 @@ function App() {
           window.URL.revokeObjectURL(url);
         } else {
           // Pour plusieurs vidéos, créer un ZIP
-          const response = await axios.get(
-            `http://localhost:8000/session/${sessionId}/download`,
+          const response = await api.get(
+            `session/${sessionId}/download`,
             { responseType: 'blob' }
           );
           
@@ -465,7 +441,7 @@ function App() {
         }
 
         // Nettoyer le dossier de téléchargement
-        await axios.post('http://localhost:8000/clean');
+        await api.post('clean');
         
       } catch (error) {
         console.error('Error downloading file:', error);
