@@ -7,3 +7,6 @@ webapp/backend/.env
 
 webapp/frontend/node_modules
 webapp/backend/ffmpeg
+webapp/frontend/.env.production
+webapp/frontend/.env.development
+webapp/frontend/nginx/nginx.conf
