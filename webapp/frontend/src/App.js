@@ -2,6 +2,25 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import axios from 'axios';
 
+const VIDEO_FORMATS = [
+  { value: 'mp4', label: 'MP4' },
+  { value: 'mkv', label: 'MKV' },
+  { value: 'avi', label: 'AVI' },
+  { value: 'webm', label: 'WebM' },
+  { value: 'mov', label: 'MOV' },
+  { value: 'flv', label: 'FLV' },
+];
+
+const AUDIO_FORMATS = [
+  { value: 'mp3', label: 'MP3' },
+  { value: 'm4a', label: 'M4A' },
+  { value: 'wav', label: 'WAV' },
+  { value: 'aac', label: 'AAC' },
+  { value: 'ogg', label: 'OGG' },
+  { value: 'opus', label: 'OPUS' },
+  { value: 'flac', label: 'FLAC' },
+];
+
 function App() {
   const [url, setUrl] = useState('');
   const [format, setFormat] = useState('video');
@@ -11,6 +30,14 @@ function App() {
   const [progress, setProgress] = useState(0);
   const [playlistItems, setPlaylistItems] = useState([]);
   const [error, setError] = useState('');
+
+  // Mettre à jour le format de fichier quand le type change
+  const handleFormatChange = (e) => {
+    const newFormat = e.target.value;
+    setFormat(newFormat);
+    // Sélectionner le premier format disponible pour le nouveau type
+    setFileFormat(newFormat === 'video' ? VIDEO_FORMATS[0].value : AUDIO_FORMATS[0].value);
+  };
 
   const checkDownloadStatus = async (downloadId) => {
     try {
@@ -96,7 +123,7 @@ function App() {
                   <label className="block text-sm font-medium text-gray-700">Type</label>
                   <select
                     value={format}
-                    onChange={(e) => setFormat(e.target.value)}
+                    onChange={handleFormatChange}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
                   >
                     <option value="video">Vidéo</option>
@@ -104,18 +131,20 @@ function App() {
                   </select>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Qualité</label>
-                  <select
-                    value={quality}
-                    onChange={(e) => setQuality(e.target.value)}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
-                  >
-                    <option value="highest">Meilleure</option>
-                    <option value="medium">Moyenne</option>
-                    <option value="lowest">Basse</option>
-                  </select>
-                </div>
+                {format === 'video' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Qualité</label>
+                    <select
+                      value={quality}
+                      onChange={(e) => setQuality(e.target.value)}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+                    >
+                      <option value="highest">Meilleure</option>
+                      <option value="medium">Moyenne</option>
+                      <option value="lowest">Basse</option>
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Format</label>
@@ -124,10 +153,11 @@ function App() {
                     onChange={(e) => setFileFormat(e.target.value)}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
                   >
-                    <option value="mp4">MP4</option>
-                    <option value="mkv">MKV</option>
-                    <option value="mp3">MP3</option>
-                    <option value="m4a">M4A</option>
+                    {(format === 'video' ? VIDEO_FORMATS : AUDIO_FORMATS).map(fmt => (
+                      <option key={fmt.value} value={fmt.value}>
+                        {fmt.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
