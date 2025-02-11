@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { FaPlus, FaDownload, FaSpinner } from 'react-icons/fa';
-import { VIDEO_FORMATS, AUDIO_FORMATS } from './constants';
+import { VIDEO_FORMATS, AUDIO_FORMATS, isValidYoutubeUrl } from './constants';
 
 const DownloadForm = ({ 
   url, 
@@ -17,25 +17,54 @@ const DownloadForm = ({
   onSingleDownload,
   isAddingToQueue = false
 }) => {
+  const [urlError, setUrlError] = useState('');
+
   const handleFormatChange = (e) => {
     const newFormat = e.target.value;
     setFormat(newFormat);
     setFileFormat(newFormat === 'video' ? VIDEO_FORMATS[0].value : AUDIO_FORMATS[0].value);
   };
 
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!url) {
+      setUrlError('Veuillez entrer une URL');
+      return;
+    }
+
+    if (!isValidYoutubeUrl(url)) {
+      setUrlError('Veuillez entrer une URL YouTube valide (youtube.com ou youtu.be)');
+      return;
+    }
+
+    setUrlError('');
+    onAddToQueue();
+  };
+
+  const handleUrlChange = (e) => {
+    setUrl(e.target.value);
+    setUrlError('');
+  };
+
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onAddToQueue(); }} className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <label className="block text-sm font-medium text-gray-700">URL</label>
+        <label className="block text-sm font-medium text-gray-700">URL YouTube</label>
         <input
           type="url"
           value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500"
+          onChange={handleUrlChange}
+          className={`mt-1 block w-full rounded-md shadow-sm focus:border-purple-500 focus:ring-purple-500 ${
+            urlError ? 'border-red-500' : 'border-gray-300'
+          }`}
           placeholder="https://youtube.com/..."
-          required
           disabled={isAddingToQueue}
         />
+        {urlError && (
+          <p className="mt-2 text-sm text-red-600">
+            {urlError}
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-4">

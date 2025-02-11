@@ -17,6 +17,18 @@ export const AUDIO_FORMATS = [
   { value: 'flac', label: 'FLAC' },
 ];
 
+// Fonction pour valider une URL YouTube
+export const isValidYoutubeUrl = (url) => {
+  try {
+    const urlObj = new URL(url);
+    return urlObj.hostname === 'www.youtube.com' || 
+           urlObj.hostname === 'youtube.com' || 
+           urlObj.hostname === 'youtu.be';
+  } catch (e) {
+    return false;
+  }
+};
+
 // Fonction pour nettoyer l'URL YouTube
 export const cleanYoutubeUrl = (url) => {
   try {
