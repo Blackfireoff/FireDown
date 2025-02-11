@@ -300,7 +300,8 @@ function App() {
         return;
       }
 
-      const response = await axios.post('http://localhost:8000/download-batch', {
+      // Démarrer le téléchargement par lot
+      const response = await axios.post('http://localhost:8000/start-batch-download', {
         videos: queue.map(item => ({
           url: cleanYoutubeUrl(item.url),
           format: item.format,
@@ -310,198 +311,79 @@ function App() {
       });
 
       console.log('Batch download initiated:', response.data);
-      const { batch_id, download_ids } = response.data;
-      
-      let allComplete = false;
-      let completedDownloads = 0;
-      let lastProgress = {};
-      
-      while (!allComplete) {
-        allComplete = true;
-        let totalProgress = 0;
-        let currentItem = null;
-        
-        for (let i = 0; i < download_ids.length; i++) {
-          try {
-            const statusResponse = await axios.get(`http://localhost:8000/status/${download_ids[i]}`);
-            const downloadStatus = statusResponse.data;
-            console.log(`Status for download ${i} (${download_ids[i]}):`, downloadStatus);
-            
-            if (!downloadStatus.filename) {
-              allComplete = false;
-              const progress = downloadStatus.progress || lastProgress[download_ids[i]] || 0;
-              lastProgress[download_ids[i]] = progress;
-              totalProgress += progress;
-              if (!currentItem && downloadStatus.title) {
-                currentItem = {
-                  title: downloadStatus.title,
-                  progress: progress
-                };
-              }
-            } else {
-              console.log(`Download ${i} complete:`, downloadStatus.filename);
-              completedDownloads++;
-              totalProgress += 100;
-              lastProgress[download_ids[i]] = 100;
-            }
-          } catch (error) {
-            console.error(`Error checking download status for ${download_ids[i]}:`, error);
-            totalProgress += lastProgress[download_ids[i]] || 0;
-          }
-        }
-        
-        const avgProgress = totalProgress / download_ids.length;
-        setProgress(Math.round(avgProgress));
-        setBatchProgress({
-          current: completedDownloads,
-          total: queue.length,
-          currentItem: currentItem || { title: "Téléchargement en cours...", progress: avgProgress }
-        });
-        
-        if (!allComplete) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      }
+      const batchId = response.data.batch_id;
 
-      console.log('All downloads complete, waiting for ZIP...');
-      let zipReady = false;
-      let checkCount = 0;
-      const maxChecks = 60;
-      let lastBatchStatus = null;
-
-      setBatchProgress(prev => ({
-        ...prev,
-        currentItem: { title: "Création du fichier ZIP...", progress: 0 }
-      }));
-
-      while (!zipReady && checkCount < maxChecks && downloading) {
+      // Vérifier le statut toutes les 5 secondes
+      const checkStatus = async () => {
         try {
-          console.log(`Checking ZIP status (attempt ${checkCount + 1}/${maxChecks})...`);
+          const statusResponse = await axios.get(`http://localhost:8000/check-batch-status/${batchId}`);
+          const status = statusResponse.data;
           
-          const batchStatusResponse = await axios.get(`http://localhost:8000/batch-status/${batch_id}`);
-          lastBatchStatus = batchStatusResponse.data;
-          
-          if (lastBatchStatus.error) {
-            throw new Error(lastBatchStatus.error);
-          }
-          
+          setProgress(status.progress);
           setBatchProgress(prev => ({
             ...prev,
-            currentItem: { 
-              title: "Création du fichier ZIP...", 
-              progress: lastBatchStatus.progress || 0
-            }
+            current: Math.floor((status.progress / 100) * queue.length),
+            currentItem: { title: "Téléchargement en cours...", progress: status.progress }
           }));
-          
-          const zipCheckResponse = await axios.get(`http://localhost:8000/check-zip/${batch_id}`);
-          
-          if (zipCheckResponse.data.ready) {
-            zipReady = true;
-            console.log('ZIP is ready, downloading...');
+
+          if (status.error) {
+            throw new Error(status.error);
+          }
+
+          if (status.is_ready && status.filename) {
+            // Télécharger le fichier ZIP
+            console.log('ZIP file is ready, downloading:', status.filename);
+            const downloadResponse = await axios.get(
+              `http://localhost:8000/download-batch/${batchId}`,
+              { responseType: 'blob' }
+            );
+
+            // Créer le lien de téléchargement
+            const blob = new Blob([downloadResponse.data], { type: 'application/zip' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = status.filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+
+            // Nettoyer les fichiers sur le serveur
+            await axios.post(`http://localhost:8000/cleanup-batch/${batchId}`);
             
-            try {
-              const zipFileName = zipCheckResponse.data.filename;
-              console.log('Downloading ZIP:', zipFileName);
-              
-              const zipResponse = await axios({
-                method: 'get',
-                url: `http://localhost:8000/download/${encodeURIComponent(zipFileName)}`,
-                responseType: 'blob',
-                timeout: 60000,
-                headers: {
-                  'Accept': 'application/zip',
-                  'Content-Type': 'application/zip'
-                },
-                onDownloadProgress: (progressEvent) => {
-                  const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-                  console.log('ZIP download progress:', percentCompleted + '%');
-                  setBatchProgress(prev => ({
-                    ...prev,
-                    currentItem: { 
-                      title: "Téléchargement du ZIP...", 
-                      progress: percentCompleted 
-                    }
-                  }));
-                }
-              });
-
-              const blob = new Blob([zipResponse.data], { type: 'application/zip' });
-              const url = window.URL.createObjectURL(blob);
-              const link = document.createElement('a');
-              link.href = url;
-              link.setAttribute('download', zipFileName);
-              link.setAttribute('target', '_blank');
-              document.body.appendChild(link);
-              
-              console.log('Triggering ZIP download');
-              link.click();
-              
-              document.body.removeChild(link);
-              window.URL.revokeObjectURL(url);
-              console.log('ZIP download complete');
-
-              setQueue([]);
-              setProgress(100);
-              setBatchProgress(prev => ({
-                ...prev,
-                currentItem: { title: "Téléchargement terminé!", progress: 100 }
-              }));
-              
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              break;
-              
-            } catch (downloadError) {
-              console.error('Error downloading ZIP:', downloadError);
-              throw new Error(`Erreur lors du téléchargement du ZIP: ${downloadError.message}`);
-            }
-          } else {
-            if (checkCount >= maxChecks - 1) {
-              // Si on atteint la limite d'essais, on considère que c'est un succès
-              // car les fichiers individuels sont déjà téléchargés
-              console.log('ZIP creation timeout, but files were downloaded successfully');
-              setQueue([]);
-              setProgress(100);
-              setBatchProgress(prev => ({
-                ...prev,
-                currentItem: { title: "Téléchargement terminé!", progress: 100 }
-              }));
-              break;
-            }
-            console.log('ZIP not ready yet, waiting 5 seconds...');
-            if (lastBatchStatus.progress) {
-              console.log(`ZIP creation progress: ${lastBatchStatus.progress}%`);
-            }
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            checkCount++;
-          }
-        } catch (error) {
-          console.error('Error checking ZIP status:', error);
-          if (lastBatchStatus?.error) {
-            throw new Error(`Erreur lors de la création du ZIP: ${lastBatchStatus.error}`);
-          }
-          if (checkCount >= maxChecks - 1) {
-            // Si on atteint la limite d'essais, on considère que c'est un succès
-            // car les fichiers individuels sont déjà téléchargés
-            console.log('ZIP creation failed, but files were downloaded successfully');
             setQueue([]);
-            setProgress(100);
-            setBatchProgress(prev => ({
-              ...prev,
-              currentItem: { title: "Téléchargement terminé!", progress: 100 }
-            }));
-            break;
+            setDownloading(false);
+            setProgress(0);
+            setBatchProgress({
+              current: 0,
+              total: 0,
+              currentItem: null
+            });
+            return;
           }
-          checkCount++;
-          await new Promise(resolve => setTimeout(resolve, 5000));
+
+          // Continuer à vérifier toutes les 5 secondes
+          setTimeout(checkStatus, 5000);
+        } catch (error) {
+          console.error('Error checking batch status:', error);
+          setError(error.message || 'Une erreur est survenue');
+          setDownloading(false);
+          setBatchProgress({
+            current: 0,
+            total: 0,
+            currentItem: null
+          });
         }
-      }
+      };
+
+      // Démarrer la vérification du statut
+      checkStatus();
       
     } catch (error) {
       console.error('Batch download error:', error);
       setError(error.message || 'Erreur lors du téléchargement groupé');
-    } finally {
       setDownloading(false);
-      setProgress(0);
       setBatchProgress({
         current: 0,
         total: 0,

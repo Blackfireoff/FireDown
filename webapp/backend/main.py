@@ -53,8 +53,23 @@ class VideoInfo(BaseModel):
     isPlaylist: bool = False
     playlistItems: list = []
 
+class BatchDownloadRequest(BaseModel):
+    videos: list[DownloadRequest]
+
+class BatchStatus:
+    def __init__(self):
+        self.progress = 0
+        self.current_video = ""
+        self.filename = ""
+        self.is_ready = False
+        self.error = None
+        self.downloads = {}
+
 # Stockage des statuts de téléchargement
 download_statuses = {}
+
+# Stockage des statuts de téléchargement par lot
+batch_statuses = {}
 
 # ---------------------------
 # Fonctions utilitaires
@@ -336,3 +351,163 @@ async def startup_event():
                 print(f"Erreur lors du nettoyage : {e}")
     
     asyncio.create_task(cleanup_downloads())
+
+async def create_batch_zip(batch_id: str, download_ids: list[str]):
+    try:
+        batch_status = batch_statuses[batch_id]
+        failed_downloads = []
+        successful_downloads = []
+        
+        # Attendre que tous les téléchargements soient terminés
+        while True:
+            all_complete = True
+            total_progress = 0
+            completed = 0
+            
+            for download_id in download_ids:
+                if download_id in download_statuses:
+                    status = download_statuses[download_id]
+                    if status.error:
+                        failed_downloads.append({
+                            'id': download_id,
+                            'error': status.error,
+                            'title': status.title
+                        })
+                        total_progress += 100
+                        completed += 1
+                    elif not status.is_ready:
+                        all_complete = False
+                        total_progress += status.progress
+                    else:
+                        successful_downloads.append(download_id)
+                        total_progress += 100
+                        completed += 1
+                        batch_status.downloads[download_id] = True
+            
+            batch_status.progress = total_progress / len(download_ids)
+            
+            if all_complete or (len(failed_downloads) + len(successful_downloads) == len(download_ids)):
+                break
+                
+            await asyncio.sleep(1)
+        
+        # Si tous les téléchargements ont échoué
+        if len(successful_downloads) == 0:
+            error_msg = "Tous les téléchargements ont échoué:\n"
+            for fail in failed_downloads:
+                error_msg += f"- {fail['title']}: {fail['error']}\n"
+            batch_status.error = error_msg
+            return
+        
+        # Créer le ZIP avec les fichiers réussis
+        zip_filename = f"batch_{batch_id}.zip"
+        zip_path = os.path.join(DOWNLOAD_DIR, zip_filename)
+        
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for download_id in successful_downloads:
+                if download_id in download_statuses:
+                    status = download_statuses[download_id]
+                    if status.is_ready and status.filename:
+                        file_path = os.path.join(DOWNLOAD_DIR, status.filename)
+                        if os.path.exists(file_path):
+                            zipf.write(file_path, status.filename)
+                            os.remove(file_path)  # Supprimer le fichier original
+        
+        batch_status.filename = zip_filename
+        batch_status.is_ready = True
+        
+        # Si certains téléchargements ont échoué
+        if len(failed_downloads) > 0:
+            error_msg = "Certains téléchargements ont échoué:\n"
+            for fail in failed_downloads:
+                error_msg += f"- {fail['title']}: {fail['error']}\n"
+            batch_status.error = error_msg
+        
+    except Exception as e:
+        batch_status.error = str(e)
+        raise
+
+@app.post("/start-batch-download")
+async def start_batch_download(request: BatchDownloadRequest, background_tasks: BackgroundTasks):
+    batch_id = str(uuid.uuid4())
+    download_ids = []
+    
+    try:
+        # Initialiser le statut du lot
+        batch_statuses[batch_id] = BatchStatus()
+        
+        # Démarrer chaque téléchargement
+        for video in request.videos:
+            download_id = str(uuid.uuid4())
+            download_ids.append(download_id)
+            background_tasks.add_task(
+                download_video,
+                video.url,
+                video.format,
+                video.quality,
+                video.fileFormat,
+                download_id
+            )
+        
+        # Démarrer la création du ZIP en arrière-plan
+        background_tasks.add_task(create_batch_zip, batch_id, download_ids)
+        
+        return {"batch_id": batch_id}
+        
+    except Exception as e:
+        if batch_id in batch_statuses:
+            del batch_statuses[batch_id]
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/check-batch-status/{batch_id}")
+async def check_batch_status(batch_id: str):
+    if batch_id not in batch_statuses:
+        raise HTTPException(status_code=404, detail="Lot non trouvé")
+    
+    status = batch_statuses[batch_id]
+    response = {
+        "progress": status.progress,
+        "is_ready": status.is_ready
+    }
+    
+    if status.error:
+        response["error"] = status.error
+    if status.is_ready:
+        response["filename"] = status.filename
+    
+    return response
+
+@app.get("/download-batch/{batch_id}")
+async def download_batch(batch_id: str):
+    if batch_id not in batch_statuses:
+        raise HTTPException(status_code=404, detail="Lot non trouvé")
+    
+    status = batch_statuses[batch_id]
+    if not status.is_ready:
+        raise HTTPException(status_code=400, detail="Le fichier ZIP n'est pas encore prêt")
+    
+    file_path = os.path.join(DOWNLOAD_DIR, status.filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Fichier ZIP non trouvé")
+    
+    return FileResponse(
+        file_path,
+        media_type='application/zip',
+        filename=status.filename
+    )
+
+@app.post("/cleanup-batch/{batch_id}")
+async def cleanup_batch(batch_id: str):
+    if batch_id not in batch_statuses:
+        raise HTTPException(status_code=404, detail="Lot non trouvé")
+    
+    status = batch_statuses[batch_id]
+    file_path = os.path.join(DOWNLOAD_DIR, status.filename)
+    
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        del batch_statuses[batch_id]
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
