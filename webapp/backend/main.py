@@ -818,3 +818,14 @@ async def download_single_file(session_id: str):
         media_type='application/octet-stream',
         filename=latest_file
     )
+
+@app.post("/clean")
+async def clean_downloads():
+    try:
+        videos_folder = os.path.join(DOWNLOAD_DIR, "videos")
+        if os.path.exists(videos_folder):
+            shutil.rmtree(videos_folder)
+            os.makedirs(videos_folder)  # Recréer le dossier vide
+        return {"status": "success", "message": "Download folder cleaned successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning downloads: {str(e)}")

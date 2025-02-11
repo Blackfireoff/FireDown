@@ -294,6 +294,8 @@ function App() {
 
             // Nettoyer le fichier sur le serveur
             await axios.post(`http://localhost:8000/cleanup/${downloadId}`);
+            // Nettoyer le dossier de téléchargement
+            await axios.post('http://localhost:8000/clean');
             
             setDownloading(false);
             setCurrentVideoInfo(null);
@@ -461,6 +463,9 @@ function App() {
           document.body.removeChild(link);
           window.URL.revokeObjectURL(url);
         }
+
+        // Nettoyer le dossier de téléchargement
+        await axios.post('http://localhost:8000/clean');
         
       } catch (error) {
         console.error('Error downloading file:', error);
