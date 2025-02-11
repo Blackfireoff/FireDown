@@ -124,14 +124,17 @@ def format_size(size: int) -> str:
 # Fonction de téléchargement
 # ---------------------------
 async def download_video(url: str, format_type: str, quality: str, file_format: str, download_id: str):
-    status = download_statuses[download_id]
-    
-    download_folder = status.download_folder if status.download_folder else os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
-    os.makedirs(download_folder, exist_ok=True)
-
-    ffmpeg_location = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "bin")
+    # Créer et stocker le status avant tout
+    status = DownloadStatus()
+    download_statuses[download_id] = status
     
     try:
+        # Configurer le dossier de téléchargement
+        download_folder = status.download_folder if status.download_folder else os.path.join(DOWNLOAD_DIR, f"download_{download_id}")
+        os.makedirs(download_folder, exist_ok=True)
+
+        ffmpeg_location = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ffmpeg", "bin")
+        
         ydl_opts = {
             'format': get_format_selection(format_type, quality, file_format),
             'outtmpl': os.path.join(download_folder, f'%(title)s.%(ext)s'),
@@ -163,11 +166,15 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
             })
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # Extraire les informations d'abord
             info = ydl.extract_info(url, download=False)
             if info is None:
                 raise Exception("Impossible d'extraire les informations de la vidéo")
             
+            # Mettre à jour le titre
             status.title = info.get('title', '')
+            
+            # Télécharger la vidéo
             info = ydl.extract_info(url, download=True)
             
             if 'entries' in info:  # Playlist
@@ -209,9 +216,8 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
             status.is_ready = True
 
     except Exception as e:
-        # if os.path.exists(download_folder):
-        #     shutil.rmtree(download_folder)
         status.error = str(e)
+        print(f"Erreur lors du téléchargement: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------------------------
@@ -294,34 +300,90 @@ async def get_video_info(url: str):
             'no_check_certificates': True,
             'nocheckcertificate': True,
             'quiet': True,
+            'extract_flat': True,  # Important pour les playlists
+            'force_generic_extractor': False,
+            'ignoreerrors': True,  # Ignorer les vidéos non disponibles
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            try:
+                info = ydl.extract_info(url, download=False)
+                if info is None:
+                    raise Exception("Impossible d'extraire les informations")
+                
+                if 'entries' in info:  # C'est une playlist
+                    playlist_items = []
+                    for entry in info['entries']:
+                        if entry:  # Vérifier que l'entrée existe
+                            try:
+                                playlist_items.append({
+                                    'title': entry.get('title', 'Unknown'),
+                                    'duration': format_duration(entry.get('duration', 0)),
+                                    'thumbnail': entry.get('thumbnail', None),
+                                    'url': entry.get('url') or entry.get('webpage_url'),
+                                    'id': entry.get('id', None)
+                                })
+                            except Exception as e:
+                                print(f"Erreur lors de l'extraction d'une vidéo de la playlist: {str(e)}")
+                                continue
+                    
+                    if not playlist_items:
+                        raise Exception("Aucune vidéo valide trouvée dans la playlist")
+                    
+                    return VideoInfo(
+                        title=info.get('title', 'Unknown Playlist'),
+                        duration=f"{len(playlist_items)} videos",
+                        thumbnail=info.get('thumbnail') or (playlist_items[0].get('thumbnail') if playlist_items else None),
+                        isPlaylist=True,
+                        playlistItems=playlist_items
+                    )
+                else:  # C'est une vidéo unique
+                    return VideoInfo(
+                        title=info.get('title', 'Unknown'),
+                        duration=format_duration(info.get('duration', 0)),
+                        thumbnail=info.get('thumbnail', None),
+                        size=format_size(info.get('filesize', 0)) if info.get('filesize') else None,
+                        isPlaylist=False
+                    )
+            except Exception as e:
+                print(f"Erreur lors de l'extraction des informations: {str(e)}")
+                raise
+    except Exception as e:
+        print(f"Erreur dans get_video_info: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/add-playlist")
+async def add_playlist(url: str, format: str = "audio", quality: str = "highest", fileFormat: str = "mp3"):
+    try:
+        # Récupérer les informations de la playlist
+        ydl_opts = {
+            'no_check_certificates': True,
+            'nocheckcertificate': True,
+            'quiet': True,
             'extract_flat': 'in_playlist',
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
-            if 'entries' in info:
-                playlist_items = []
-                for entry in info['entries']:
-                    if entry:
-                        playlist_items.append({
-                            'title': entry.get('title', 'Unknown'),
-                            'duration': format_duration(entry.get('duration', 0)),
-                            'thumbnail': entry.get('thumbnail', None)
-                        })
-                return VideoInfo(
-                    title=info.get('title', 'Unknown Playlist'),
-                    duration=f"{len(playlist_items)} videos",
-                    thumbnail=info.get('entries', [{}])[0].get('thumbnail', None),
-                    isPlaylist=True,
-                    playlistItems=playlist_items
-                )
-            else:
-                return VideoInfo(
-                    title=info.get('title', 'Unknown'),
-                    duration=format_duration(info.get('duration', 0)),
-                    thumbnail=info.get('thumbnail', None),
-                    size=format_size(info.get('filesize', 0)) if info.get('filesize') else None,
-                    isPlaylist=False
-                )
+            if not info or 'entries' not in info:
+                raise HTTPException(status_code=400, detail="URL invalide ou playlist non trouvée")
+            
+            # Créer une liste de vidéos à télécharger
+            videos = []
+            for entry in info['entries']:
+                if entry and entry.get('webpage_url'):
+                    videos.append({
+                        "url": entry['webpage_url'],
+                        "format": format,
+                        "quality": quality,
+                        "fileFormat": fileFormat,
+                        "title": entry.get('title', 'Unknown')
+                    })
+            
+            return {
+                "videos": videos,
+                "playlist_title": info.get('title', 'Unknown Playlist'),
+                "video_count": len(videos)
+            }
+            
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -167,22 +167,50 @@ function App() {
     const videoInfo = await fetchVideoInfo(cleanedUrl);
     if (!videoInfo) return;
 
-    const queueItem = {
-      id: Date.now(),
-      url: cleanedUrl,
-      format,
-      quality,
-      fileFormat,
-      thumbnail: videoInfo.thumbnail,
-      title: videoInfo.title,
-      duration: videoInfo.duration,
-      size: videoInfo.size,
-      isPlaylist: videoInfo.isPlaylist,
-      playlistItems: videoInfo.playlistItems || []
-    };
+    if (videoInfo.isPlaylist) {
+        try {
+            // Appeler la nouvelle route pour obtenir toutes les vidéos de la playlist
+            const response = await axios.post(`http://localhost:8000/add-playlist?url=${encodeURIComponent(cleanedUrl)}`, {
+                format,
+                quality,
+                fileFormat
+            });
 
-    setQueue(prev => [...prev, queueItem]);
-    setUrl('');
+            // Ajouter chaque vidéo à la file d'attente
+            const newItems = response.data.videos.map(video => ({
+                id: Date.now() + Math.random(),  // Générer un ID unique
+                url: video.url,
+                format,
+                quality,
+                fileFormat,
+                title: video.title,
+                thumbnail: videoInfo.thumbnail,
+                duration: "En attente..."
+            }));
+
+            setQueue(prev => [...prev, ...newItems]);
+            setUrl('');
+
+        } catch (error) {
+            console.error('Error adding playlist:', error);
+            setError(error.response?.data?.detail || 'Erreur lors de l\'ajout de la playlist');
+        }
+    } else {
+        const queueItem = {
+            id: Date.now(),
+            url: cleanedUrl,
+            format,
+            quality,
+            fileFormat,
+            thumbnail: videoInfo.thumbnail,
+            title: videoInfo.title,
+            duration: videoInfo.duration,
+            size: videoInfo.size
+        };
+
+        setQueue(prev => [...prev, queueItem]);
+        setUrl('');
+    }
   };
 
   const handleRemoveFromQueue = (id) => {
