@@ -175,6 +175,7 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
             'ffmpeg_location': ffmpeg_location,
             'retries': 10,
             'socket_timeout': 30,
+            'cookiesfrombrowser': ('chrome',),  # Utiliser les cookies de Chrome
             'http_headers': {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
