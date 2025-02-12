@@ -6,13 +6,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     wget \
     xz-utils \
-    libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copie des fichiers nécessaires
 COPY requirements.txt .
 COPY setup_ffmpeg.py .
 COPY main.py .
+COPY youtube.cookies .
 
 # Installation des dépendances Python
 RUN pip install --no-cache-dir -r requirements.txt

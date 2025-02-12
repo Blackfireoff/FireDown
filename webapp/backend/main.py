@@ -11,7 +11,6 @@ import asyncio
 import uuid
 import time
 from starlette.background import BackgroundTask
-import browser_cookie3
 
 app = FastAPI()
 
@@ -29,31 +28,8 @@ DOWNLOAD_DIR = "downloads"
 if not os.path.exists(DOWNLOAD_DIR):
     os.makedirs(DOWNLOAD_DIR)
 
-# Fonction pour obtenir les cookies YouTube
-def get_youtube_cookies():
-    try:
-        # Essayer d'obtenir les cookies de plusieurs navigateurs
-        cookies = []
-        try:
-            cookies.extend(browser_cookie3.chrome(domain_name='.youtube.com'))
-        except:
-            pass
-        try:
-            cookies.extend(browser_cookie3.firefox(domain_name='.youtube.com'))
-        except:
-            pass
-        try:
-            cookies.extend(browser_cookie3.edge(domain_name='.youtube.com'))
-        except:
-            pass
-        
-        # Convertir les cookies en dictionnaire
-        cookie_dict = {}
-        for cookie in cookies:
-            cookie_dict[cookie.name] = cookie.value
-        return cookie_dict
-    except:
-        return None
+# Chemin vers le fichier de cookies
+COOKIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube.cookies")
 
 # ---------------------------
 # Modèles de données
@@ -198,7 +174,7 @@ async def download_video(url: str, format_type: str, quality: str, file_format: 
             'rm_cachedir': True,
             'ffmpeg_location': ffmpeg_location,
             'retries': 10,
-            'cookiesfrombrowser': ('chrome',),  # Utiliser les cookies de Chrome
+            'cookiefile': COOKIES_FILE,  # Utiliser le fichier de cookies
         }
 
         if format_type == "audio":
