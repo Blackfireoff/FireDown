@@ -12,13 +12,16 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 COPY setup_ffmpeg.py .
 COPY main.py .
-COPY youtube.cookies .
 
 # Installation des dépendances Python
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Installation de ffmpeg via le script
 RUN python setup_ffmpeg.py
+
+# Configuration de yt-dlp
+RUN mkdir -p /root/.cache/yt-dlp && \
+    chmod 777 /root/.cache/yt-dlp
 
 # Création du dossier downloads
 RUN mkdir -p downloads
